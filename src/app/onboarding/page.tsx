@@ -34,6 +34,7 @@ function SimpleOnboarding() {
   const [success, setSuccess] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
+  const [usernameError, setUsernameError] = useState<string>('');
   
   useEffect(() => {
     // Check if user is authenticated
@@ -110,6 +111,13 @@ function SimpleOnboarding() {
     if (name === 'username') {
       const sanitized = value.toLowerCase().replace(/[^a-z0-9_]/g, '');
       setFormData(prev => ({ ...prev, [name]: sanitized }));
+      
+      // Show warning if characters were removed
+      if (value !== sanitized) {
+        setUsernameError('Username can only contain letters, numbers, and underscores (no spaces)');
+      } else {
+        setUsernameError('');
+      }
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -272,8 +280,11 @@ function SimpleOnboarding() {
                 </div>
               )}
             </div>
+            {usernameError && (
+              <p className="text-xs text-orange-600 mt-1">{usernameError}</p>
+            )}
             <p className="text-xs text-gray-500 mt-1">
-              Only lowercase letters, numbers, and underscores. Must be at least 3 characters.
+              Only lowercase letters, numbers, and underscores. No spaces allowed.
             </p>
           </div>
           

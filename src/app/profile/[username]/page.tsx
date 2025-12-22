@@ -32,12 +32,28 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
         const { data: { user } } = await supabase.auth.getUser();
         setCurrentUser(user);
         
-        // Query the database directly for the user profile
-        const { data: profileData, error: profileError } = await supabase
+        // Decode URL-encoded username (handles spaces encoded as %20)
+        const decodedUsername = decodeURIComponent(username);
+        
+        // Query the database directly for the user profile by username
+        let { data: profileData, error: profileError } = await supabase
           .from('users')
           .select('*')
-          .eq('username', username)
+          .eq('username', decodedUsername)
           .maybeSingle();
+        
+        // If not found by username, try searching by name (fallback for mismatched data)
+        if (!profileData && !profileError) {
+          const { data: nameData } = await supabase
+            .from('users')
+            .select('*')
+            .eq('name', decodedUsername)
+            .maybeSingle();
+          
+          if (nameData) {
+            profileData = nameData;
+          }
+        }
           
         if (profileError) {
           console.error('Profile error:', profileError);
