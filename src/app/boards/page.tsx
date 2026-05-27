@@ -15,6 +15,7 @@ interface Board {
   pin_count: number;
   cover_image: string | null;
   preview_profiles: Creator[];
+  follower_count?: number;
   user?: {
     username: string;
     name: string;
@@ -152,6 +153,12 @@ export default function BoardsPage() {
               .eq('board_id', board.id)
               .limit(4);
 
+            // Get follower count
+            const { count: followerCount } = await supabase
+              .from('board_followers')
+              .select('*', { count: 'exact', head: true })
+              .eq('board_id', board.id);
+
             return {
               id: board.id,
               title: board.title,
@@ -161,6 +168,7 @@ export default function BoardsPage() {
               cover_image: board.cover_image || null,
               pin_count: pinsData?.length || 0,
               preview_profiles: pinsData?.map(pin => pin.users) || [],
+              follower_count: followerCount || 0,
               user: userData || { username: 'unknown', name: 'Unknown', profile_photo: null }
             };
           }));
@@ -482,14 +490,17 @@ export default function BoardsPage() {
                     
                     {/* Board Info */}
                     <div className="p-4">
-                      <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors line-clamp-1">
+                      <h3 className="font-bold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors line-clamp-1">
                         {board.title}
                       </h3>
                       {board.description && (
-                        <p className="text-gray-500 text-sm line-clamp-2 mb-2">{board.description}</p>
+                        <p className="text-gray-500 text-sm line-clamp-2 mb-3 italic">"{board.description}"</p>
                       )}
-                      <div className="flex items-center justify-between text-xs text-gray-400">
-                        <div className="flex items-center gap-2">
+                      
+                      {/* Curated by */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-xs text-gray-400">Curated by</span>
+                        <div className="flex items-center gap-1.5">
                           {board.user?.profile_photo ? (
                             <Image
                               src={board.user.profile_photo}
@@ -500,13 +511,22 @@ export default function BoardsPage() {
                               unoptimized
                             />
                           ) : (
-                            <div className="w-5 h-5 rounded-full bg-gray-300 flex items-center justify-center text-[10px]">
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-[10px] text-white font-bold">
                               {board.user?.name?.[0] || '?'}
                             </div>
                           )}
-                          <span>@{board.user?.username}</span>
+                          <span className="text-sm font-medium text-gray-700">@{board.user?.username}</span>
                         </div>
-                        <span>{board.pin_count} pins</span>
+                      </div>
+                      
+                      {/* Stats */}
+                      <div className="flex items-center gap-3 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          ❤️ <span className="font-medium">{board.follower_count || 0}</span> followers
+                        </span>
+                        <span className="flex items-center gap-1">
+                          📌 <span className="font-medium">{board.pin_count}</span> creators
+                        </span>
                       </div>
                     </div>
                   </div>

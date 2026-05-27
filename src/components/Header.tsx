@@ -1,11 +1,47 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import AuthButton from './AuthButton';
+import { supabase } from '@/lib/supabaseClient';
+import { FiBell, FiBarChart2 } from 'react-icons/fi';
 
 export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    async function loadNotifications() {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+
+      if (user) {
+        // Get unread notification count
+        const { count } = await supabase
+          .from('notifications')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_read', false);
+
+        setUnreadCount(count || 0);
+      }
+    }
+
+    loadNotifications();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user || null);
+      if (session?.user) {
+        loadNotifications();
+      } else {
+        setUnreadCount(0);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   return (
     <header className="bg-white shadow-sm border-b sticky top-0 z-40">
@@ -43,8 +79,33 @@ export default function Header() {
             </Link>
           </nav>
 
-          {/* Right side: Auth + Mobile menu button */}
-          <div className="flex items-center space-x-3">
+          {/* Right side: Notifications + Insights + Auth + Mobile menu button */}
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Notifications Icon - Only show when logged in */}
+            {user && (
+              <>
+                <Link
+                  href="/insights"
+                  className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Insights"
+                >
+                  <FiBarChart2 className="w-5 h-5" />
+                </Link>
+                <Link
+                  href="/notifications"
+                  className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Notifications"
+                >
+                  <FiBell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-0 right-0 inline-flex items-center justify-center w-4 h-4 text-xs font-bold text-white bg-red-500 rounded-full">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </Link>
+              </>
+            )}
+            
             {/* Auth Button - hidden on mobile when not logged in, shown when logged in */}
             <div className="hidden md:block">
               <AuthButton />
@@ -100,6 +161,33 @@ export default function Header() {
             >
               Boards
             </Link>
+            {user && (
+              <>
+                <Link 
+                  href="/notifications" 
+                  className="flex items-center justify-between px-3 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <span className="flex items-center gap-2">
+                    <FiBell className="w-5 h-5" />
+                    Notifications
+                  </span>
+                  {unreadCount > 0 && (
+                    <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">
+                      {unreadCount}
+                    </span>
+                  )}
+                </Link>
+                <Link 
+                  href="/insights" 
+                  className="flex items-center gap-2 px-3 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <FiBarChart2 className="w-5 h-5" />
+                  Insights
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

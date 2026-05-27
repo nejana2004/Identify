@@ -29,3 +29,8 @@ CREATE POLICY "Users can insert their own profile"
   ON profiles 
   FOR INSERT 
   WITH CHECK (auth.uid() = id);
+
+-- Grant access to roles for Data API
+GRANT SELECT ON public.profiles TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.profiles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.profiles TO service_role;
