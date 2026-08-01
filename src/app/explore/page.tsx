@@ -1,134 +1,132 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
-import { useRouter } from 'next/navigation';
-import PinProfileModal from '@/components/PinProfileModal';
+import { supabase } from '@/lib/supabaseClient';
+import { slugify } from '@/lib/utils';
+import { FiArrowRight, FiGlobe, FiHash, FiSearch, FiShield, FiStar, FiUsers } from 'react-icons/fi';
 
-interface Creator {
+type Board = {
+  id: string;
+  title: string;
+  description: string | null;
+  is_public: boolean;
+  owner: string;
+  followers: number;
+  posts: number;
+  topic: string;
+};
+
+type Person = {
   id: string;
   username: string;
   name: string;
   bio: string | null;
-  profile_photo: string | null;
-  country: string | null;
-  tags_created: string[];
-  pin_count: number;
-  view_count: number;
-}
+  board_count: number;
+  badge: string;
+};
 
-interface Board {
+type CardItem = {
   id: string;
   title: string;
-  description: string | null;
-  cover_image: string | null;
-  pin_count: number;
-  created_at: string;
-  user: {
-    username: string;
-    name: string;
-    profile_photo: string | null;
-  };
-  preview_profiles: any[];
-}
+  type: 'product' | 'place' | 'service';
+  why: string;
+  link: string;
+  saves: number;
+  clicks: number;
+};
 
-const CONTENT_TAGS = [
-  'Art & Design', 'Photography', 'Music', 'Writing', 'Coding', 'Cooking',
-  'Fashion', 'Fitness', 'Travel', 'Gaming', 'Business', 'Education',
-  'Comedy', 'Beauty', 'DIY', 'Tech', 'Sports', 'Nature', 'Books', 'Movies'
-];
+const filters = ['All', 'Boards', 'People', 'Cards'];
+const topics = ['Tech & tools', 'Design & creativity', 'Productivity & work', 'Local places & services', 'Lifestyle & consumer products'];
 
-const COUNTRIES = [
-  'United States', 'Canada', 'United Kingdom', 'Australia', 'Germany',
-  'France', 'Japan', 'Brazil', 'India', 'Mexico', 'Spain', 'Italy',
-  'Netherlands', 'Sweden', 'South Korea', 'Other'
+const starterCards: CardItem[] = [
+  {
+    id: '1',
+    title: 'Your first unlock',
+    type: 'product',
+    why: 'A simple card you can attach to any board.',
+    link: '#',
+    saves: 0,
+    clicks: 0,
+  },
+  {
+    id: '2',
+    title: 'Your first place card',
+    type: 'place',
+    why: 'A place recommendation with trust signals.',
+    link: '#',
+    saves: 0,
+    clicks: 0,
+  },
+  {
+    id: '3',
+    title: 'Your first service card',
+    type: 'service',
+    why: 'A service card that explains the offer clearly.',
+    link: '#',
+    saves: 0,
+    clicks: 0,
+  },
 ];
 
 export default function ExplorePage() {
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'creators' | 'boards' | 'products'>('creators');
-  const [creators, setCreators] = useState<Creator[]>([]);
-  const [filteredCreators, setFilteredCreators] = useState<Creator[]>([]);
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [filteredBoards, setFilteredBoards] = useState<Board[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedCountry, setSelectedCountry] = useState('');
-  const [sortBy, setSortBy] = useState('popular'); // popular, newest, most_pinned
   const [user, setUser] = useState<any>(null);
-  const [pinModalOpen, setPinModalOpen] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState<Creator | null>(null);
-  const [inviteCopied, setInviteCopied] = useState(false);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [query, setQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('All');
+  const [topic, setTopic] = useState('All');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadData() {
       setLoading(true);
-      
+
       try {
-        // Check authentication
-        const { data: { user } } = await supabase.auth.getUser();
+        const [{ data: { user } }, { data: boardRows }, { data: personRows }] = await Promise.all([
+          supabase.auth.getUser(),
+          supabase.from('boards').select('id, title, description, is_public, user_id').order('created_at', { ascending: false }).limit(24),
+          supabase.from('users').select('id, username, name, bio, board_count').order('board_count', { ascending: false }).limit(24),
+        ]);
+
         setUser(user);
 
-        // Load all creators
-        const { data: creatorsData, error: creatorsError } = await supabase
-          .from('users')
-          .select('id, username, name, bio, profile_photo, country, tags_created, pin_count, view_count')
-          .order('pin_count', { ascending: false });
+        const formattedBoards = await Promise.all((boardRows || []).map(async (board) => {
+          const [{ data: owner }, { count: followerCount }, { count: postCount }] = await Promise.all([
+            supabase.from('users').select('username, name').eq('id', board.user_id).maybeSingle(),
+            supabase.from('board_followers').select('*', { count: 'exact', head: true }).eq('board_id', board.id),
+            supabase.from('pins').select('*', { count: 'exact', head: true }).eq('board_id', board.id),
+          ]);
 
-        if (creatorsError) throw creatorsError;
+          const title = board.title.toLowerCase();
+          const boardTopic = title.includes('kubernetes') || title.includes('tech') ? 'Tech & tools' : title.includes('colombo') || title.includes('cafe') ? 'Local places & services' : title.includes('design') ? 'Design & creativity' : 'Productivity & work';
 
-        setCreators(creatorsData || []);
-        setFilteredCreators(creatorsData || []);
+          return {
+            id: board.id,
+            title: board.title,
+            description: board.description,
+            is_public: board.is_public,
+            owner: owner?.name || owner?.username || 'Unknown',
+            followers: followerCount || 0,
+            posts: postCount || 0,
+            topic: boardTopic,
+          };
+        }));
 
-        // Load all public boards
-        const { data: boardsData, error: boardsError } = await supabase
-          .from('boards')
-          .select(`
-            id, title, description, created_at, cover_image, user_id
-          `)
-          .eq('is_public', true)
-          .order('created_at', { ascending: false });
+        setBoards(formattedBoards);
 
-        console.log('Boards query result:', { boardsData, boardsError });
+        const formattedPeople = (personRows || []).map((person, index) => ({
+          id: person.id,
+          username: person.username,
+          name: person.name,
+          bio: person.bio,
+          board_count: person.board_count || 0,
+          badge: index < 3 ? 'Top contributor' : 'Active in this topic',
+        }));
 
-        if (boardsError) {
-          console.error('Error loading boards:', boardsError);
-        }
-        
-        if (boardsData && boardsData.length > 0) {
-          // Load additional data for each board
-          const formattedBoards = await Promise.all(boardsData.map(async (board) => {
-            // Get user info
-            const { data: userData } = await supabase
-              .from('users')
-              .select('username, name, profile_photo')
-              .eq('id', board.user_id)
-              .maybeSingle();
-
-            // Get pins with profiles
-            const { data: pinsData } = await supabase
-              .from('pins')
-              .select('users!profile_id(id, username, name, profile_photo)')
-              .eq('board_id', board.id)
-              .limit(4);
-
-            return {
-              ...board,
-              pin_count: pinsData?.length || 0,
-              preview_profiles: pinsData?.map(pin => pin.users) || [],
-              user: userData || { username: 'unknown', name: 'Unknown', profile_photo: null }
-            };
-          }));
-          
-          console.log('Formatted boards:', formattedBoards);
-          setBoards(formattedBoards as any);
-          setFilteredBoards(formattedBoards as any);
-        }
+        setPeople(formattedPeople);
       } catch (error) {
-        console.error('Error loading data:', error);
+        console.error('Error loading discovery data:', error);
       } finally {
         setLoading(false);
       }
@@ -137,596 +135,223 @@ export default function ExplorePage() {
     loadData();
   }, []);
 
-  useEffect(() => {
-    if (activeTab === 'creators') {
-      filterAndSortCreators();
-    } else {
-      filterAndSortBoards();
-    }
-  }, [searchQuery, selectedTags, selectedCountry, sortBy, creators, boards, activeTab]);
-
-  const filterAndSortBoards = () => {
-    let filtered = [...boards];
-
-    // Filter by search query
-    if (searchQuery) {
-      filtered = filtered.filter(board =>
-        board.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        board.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        board.user?.username?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-
-    // Sort boards
-    switch (sortBy) {
-      case 'newest':
-        filtered = filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        break;
-      case 'most_pinned':
-        filtered = filtered.sort((a, b) => b.pin_count - a.pin_count);
-        break;
-      default: // popular
-        filtered = filtered.sort((a, b) => b.pin_count - a.pin_count);
-    }
-
-    setFilteredBoards(filtered);
-  };
-
-  const filterAndSortCreators = () => {
-    let filtered = [...creators];
-
-    console.log('Filtering creators:', {
-      totalCreators: creators.length,
-      searchQuery,
-      selectedTags,
-      selectedCountry,
-      sortBy
+  const filteredBoards = useMemo(() => {
+    return boards.filter((board) => {
+      const matchesTopic = topic === 'All' || board.topic === topic;
+      const haystack = `${board.title} ${board.description || ''} ${board.owner} ${board.topic}`.toLowerCase();
+      const matchesQuery = !query || haystack.includes(query.toLowerCase());
+      return matchesTopic && matchesQuery;
     });
+  }, [boards, query, topic]);
 
-    // Filter by search query (includes country)
-    if (searchQuery) {
-      filtered = filtered.filter(creator =>
-        creator.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        creator.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        creator.bio?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        creator.country?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      console.log('After search filter:', filtered.length);
-    }
+  const filteredPeople = useMemo(() => {
+    return people.filter((person) => {
+      const haystack = `${person.username} ${person.name} ${person.bio || ''}`.toLowerCase();
+      return !query || haystack.includes(query.toLowerCase());
+    });
+  }, [people, query]);
 
-    // Filter by tags
-    if (selectedTags.length > 0) {
-      filtered = filtered.filter(creator => {
-        const hasTag = creator.tags_created && Array.isArray(creator.tags_created) && 
-                      selectedTags.some(tag => creator.tags_created.includes(tag));
-        return hasTag;
-      });
-      console.log('After tag filter:', filtered.length);
-    }
-
-    // Filter by country
-    if (selectedCountry) {
-      filtered = filtered.filter(creator => creator.country === selectedCountry);
-      console.log('After country filter:', filtered.length);
-    }
-
-    // Sort creators
-    switch (sortBy) {
-      case 'newest':
-        // Since we don't have created_at in this query, we'll use reverse order
-        filtered = filtered.reverse();
-        break;
-      case 'most_pinned':
-        filtered = filtered.sort((a, b) => b.pin_count - a.pin_count);
-        break;
-      case 'most_viewed':
-        filtered = filtered.sort((a, b) => b.view_count - a.view_count);
-        break;
-      default: // popular
-        filtered = filtered.sort((a, b) => (b.pin_count + b.view_count) - (a.pin_count + a.view_count));
-    }
-
-    console.log('Final filtered count:', filtered.length);
-    setFilteredCreators(filtered);
-  };
-
-  const toggleTag = (tag: string) => {
-    setSelectedTags(prev =>
-      prev.includes(tag)
-        ? prev.filter(t => t !== tag)
-        : [...prev, tag]
-    );
-  };
-
-  const clearFilters = () => {
-    setSearchQuery('');
-    setSelectedTags([]);
-    setSelectedCountry('');
-    setSortBy('popular');
-  };
-
-  const handlePinProfile = async (creator: Creator) => {
-    console.log('=== EXPLORE PAGE PIN DEBUG ===');
-    console.log('Creator object being pinned:', creator);
-    console.log('Creator ID:', creator.id);
-    console.log('Creator ID type:', typeof creator.id);
-    console.log('Creator ID length:', creator.id?.length);
-    console.log('Creator username:', creator.username);
-    console.log('Creator name:', creator.name);
-    
-    if (!user) {
-      router.push('/auth/login');
-      return;
-    }
-
-    setSelectedProfile(creator);
-    setPinModalOpen(true);
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
+  const filteredCards = useMemo(() => {
+    return starterCards.filter((card) => {
+      const haystack = `${card.title} ${card.why} ${card.type}`.toLowerCase();
+      const matchesQuery = !query || haystack.includes(query.toLowerCase());
+      const matchesTopic = topic === 'All' || topic === 'Local places & services' || topic === 'Tech & tools' || topic === 'Design & creativity' || topic === 'Productivity & work';
+      return matchesQuery && matchesTopic;
+    });
+  }, [query, topic]);
 
   return (
-    <div className="min-h-screen">
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Page Header */}
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1 sm:mb-2">Explore</h1>
-          <p className="text-sm sm:text-base text-gray-600">Discover amazing creators and curated boards</p>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
+      <section className="rounded-[28px] border border-white/10 bg-[#12121A] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.28)]">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#D4AF37]/20 bg-[#D4AF37]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#D4AF37]">
+              Search the network
+            </div>
+            <h1 className="max-w-3xl text-3xl font-semibold tracking-tight text-[#F0F0F5] sm:text-4xl">
+              Search by topic, board, person, or card type.
+            </h1>
+            <p className="max-w-2xl text-sm leading-7 text-[#9CA3AF] sm:text-base">
+              No feed. No ranking tricks. Just clear search, transparent trust signals, and boards that make knowledge easy to find.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-sm text-[#9CA3AF]">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-2">
+              <FiShield className="h-4 w-4 text-[#D4AF37]" />
+              Saves and clicks
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-2">
+              <FiUsers className="h-4 w-4 text-[#10B981]" />
+              Followers and contributor badges
+            </span>
+          </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200 mb-6 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-          <button
-            onClick={() => setActiveTab('creators')}
-            className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
-              activeTab === 'creators'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            👤 Creators
-          </button>
-          <button
-            onClick={() => setActiveTab('boards')}
-            className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
-              activeTab === 'boards'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            📋 Boards
-          </button>
-          <button
-            onClick={() => setActiveTab('products')}
-            className={`px-4 sm:px-6 py-3 font-medium text-xs sm:text-sm border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
-              activeTab === 'products'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            🛍️ Products
-          </button>
-        </div>
-
-        {/* Filters - Only show for creators and boards */}
-        {activeTab !== 'products' && (
-        <div className="bg-white rounded-lg shadow-sm p-4 sm:p-6 mb-6 sm:mb-8">
-          {/* Search Bar */}
-          <div className="mb-4 sm:mb-6">
+        <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto]">
+          <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 focus-within:border-[#D4AF37]/50">
+            <FiSearch className="h-5 w-5 text-[#9CA3AF]" />
             <input
-              type="text"
-              placeholder={activeTab === 'creators' ? "Search by name, username, bio, or country..." : "Search boards by title or description..."}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="w-full bg-transparent text-[#F0F0F5] outline-none placeholder:text-[#4B5563]"
+              placeholder="Search boards, threads, cards, and people"
             />
+          </label>
+
+          <div className="flex items-center gap-2">
+            <Link href="/boards" className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-medium text-[#F0F0F5] hover:bg-white/[0.06]">
+              <FiHash className="h-4 w-4 text-[#D4AF37]" />
+              Boards
+            </Link>
+            <Link href="/profile/me" className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F] hover:bg-[#F0C94A]">
+              My profile
+              <FiArrowRight className="h-4 w-4" />
+            </Link>
           </div>
-
-          {/* Filter Controls - Only for Creators */}
-          {activeTab === 'creators' && (
-          <div className="space-y-4 sm:space-y-6 mb-4 sm:mb-6">
-            {/* Tags Filter - Full Width */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Content Types
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {CONTENT_TAGS.map(tag => (
-                  <button
-                    key={tag}
-                    onClick={() => toggleTag(tag)}
-                    className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                      selectedTags.includes(tag)
-                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                        : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
-                    }`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Country and Sort Filters - Side by Side */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Country Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Country
-                </label>
-                <select
-                  value={selectedCountry}
-                  onChange={(e) => setSelectedCountry(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">All Countries</option>
-                  {COUNTRIES.map(country => (
-                    <option key={country} value={country}>
-                      {country}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Sort Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sort By
-                </label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="popular">Most Popular</option>
-                  <option value="most_pinned">Most Pinned</option>
-                  <option value="most_viewed">Most Viewed</option>
-                  <option value="newest">Newest</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          )}
-
-          {/* Sort for Boards */}
-          {activeTab === 'boards' && (
-            <div className="w-full sm:w-48">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Sort By
-              </label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="popular">Most Popular</option>
-                <option value="most_pinned">Most Pins</option>
-                <option value="newest">Newest</option>
-              </select>
-            </div>
-          )}
-
-          {/* Active Filters & Clear */}
-          {activeTab === 'creators' && (
-          <div className="flex flex-wrap items-center gap-2">
-            {selectedTags.length > 0 && (
-              <span className="text-sm text-gray-600">
-                Tags: {selectedTags.join(', ')}
-              </span>
-            )}
-            {selectedCountry && (
-              <span className="text-sm text-gray-600">
-                Country: {selectedCountry}
-              </span>
-            )}
-            {(selectedTags.length > 0 || selectedCountry || searchQuery) && (
-              <button
-                onClick={clearFilters}
-                className="text-sm text-blue-600 hover:text-blue-700 underline"
-              >
-                Clear all filters
-              </button>
-            )}
-          </div>
-          )}
         </div>
-        )}
 
-        {/* Results Count - Only for creators and boards */}
-        {activeTab !== 'products' && (
-        <div className="mb-6">
-          <p className="text-gray-600">
-            Showing {activeTab === 'creators' ? filteredCreators.length + ' creators' : filteredBoards.length + ' boards'}
-          </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {filters.map((item) => (
+            <button
+              key={item}
+              onClick={() => setActiveFilter(item)}
+              className={`rounded-full px-4 py-2 text-sm transition ${activeFilter === item ? 'bg-[#D4AF37] text-[#0A0A0F]' : 'border border-white/10 bg-white/[0.03] text-[#F0F0F5] hover:bg-white/[0.06]'}`}
+            >
+              {item}
+            </button>
+          ))}
         </div>
-        )}
 
-        {/* Boards Grid */}
-        {activeTab === 'boards' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="mt-4 flex flex-wrap gap-2 overflow-x-auto pb-1">
+          <button onClick={() => setTopic('All')} className={`rounded-full px-4 py-2 text-sm ${topic === 'All' ? 'bg-[#D4AF37] text-[#0A0A0F]' : 'border border-white/10 bg-black/20 text-[#F0F0F5]'}`}>All topics</button>
+          {topics.map((item) => (
+            <button key={item} onClick={() => setTopic(item)} className={`rounded-full px-4 py-2 text-sm ${topic === item ? 'bg-[#D4AF37] text-[#0A0A0F]' : 'border border-white/10 bg-black/20 text-[#F0F0F5]'}`}>
+              {item}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-3">
+        <SummaryCard title="Boards" value={filteredBoards.length.toString()} description="Public boards that people can browse, follow, and join." />
+        <SummaryCard title="People" value={filteredPeople.length.toString()} description="Experts, reviewers, and people with useful knowledge." />
+        <SummaryCard title="Cards" value={filteredCards.length.toString()} description="Structured product, place, and service recommendations." />
+      </section>
+
+      <Section title="Boards" subtitle="Search across topic boards and transparent access types.">
+        {loading ? (
+          <div className="rounded-[28px] border border-white/10 bg-[#12121A] p-6 text-[#9CA3AF]">Loading boards...</div>
+        ) : filteredBoards.length > 0 ? (
+          <div className="grid gap-4 lg:grid-cols-3">
             {filteredBoards.map((board) => (
-              <Link key={board.id} href={`/boards/${board.id}`} className="group">
-                <div className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all overflow-hidden">
-                  {/* Board Cover */}
-                  <div className="aspect-square bg-gray-100 relative">
-                    {board.cover_image ? (
-                      <Image
-                        src={board.cover_image}
-                        alt={board.title}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : board.preview_profiles && board.preview_profiles.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-0.5 h-full p-1">
-                        {board.preview_profiles.slice(0, 4).map((profile: any, index: number) => (
-                          <div key={index} className="relative overflow-hidden rounded-sm">
-                            {profile?.profile_photo ? (
-                              <Image
-                                src={profile.profile_photo}
-                                alt={profile.name || 'Profile'}
-                                fill
-                                className="object-cover"
-                                unoptimized
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
-                                <span className="text-white text-lg font-bold">
-                                  {profile?.name?.[0]?.toUpperCase() || '?'}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {Array.from({ length: Math.max(0, 4 - board.preview_profiles.length) }).map((_, i) => (
-                          <div key={`empty-${i}`} className="bg-gray-200 rounded-sm"></div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center">
-                        <span className="text-white text-4xl">📋</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Board Info */}
-                  <div className="p-4">
-                    <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors line-clamp-1">
-                      {board.title}
-                    </h3>
-                    {board.description && (
-                      <p className="text-gray-500 text-sm line-clamp-2 mb-2">{board.description}</p>
-                    )}
-                    <div className="flex items-center justify-between text-xs text-gray-400">
-                      <div className="flex items-center gap-2">
-                        {board.user?.profile_photo ? (
-                          <Image
-                            src={board.user.profile_photo}
-                            alt={board.user.name || 'User'}
-                            width={20}
-                            height={20}
-                            className="rounded-full"
-                            unoptimized
-                          />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full bg-gray-300 flex items-center justify-center text-[10px]">
-                            {board.user?.name?.[0] || '?'}
-                          </div>
-                        )}
-                        <span>@{board.user?.username}</span>
-                      </div>
-                      <span>{board.pin_count} pins</span>
-                    </div>
-                  </div>
+              <Link key={board.id} href={`/b/${slugify(board.title)}`} className="group rounded-[28px] border border-white/10 bg-[#12121A] p-5 transition hover:-translate-y-1 hover:border-[#D4AF37]/30 hover:shadow-[0_24px_90px_rgba(0,0,0,0.36)]">
+                <div className="flex items-center justify-between gap-3 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
+                  <span>{board.topic}</span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[#F0F0F5]">
+                    {board.is_public ? <FiGlobe className="h-3.5 w-3.5 text-[#10B981]" /> : <FiShield className="h-3.5 w-3.5 text-[#D4AF37]" />}
+                    {board.is_public ? 'Public' : 'Invite-only'}
+                  </span>
+                </div>
+                <h3 className="mt-4 text-2xl font-semibold text-[#F0F0F5]">{board.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">{board.description || 'A board for threaded questions, answers, and recommendations.'}</p>
+                <div className="mt-5 flex items-center justify-between text-sm text-[#9CA3AF]">
+                  <span>by {board.owner}</span>
+                  <FiArrowRight className="h-4 w-4 text-[#D4AF37] transition group-hover:translate-x-1" />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2 text-xs text-[#9CA3AF]">
+                  <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">{board.followers} followers</span>
+                  <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">{board.posts} posts</span>
                 </div>
               </Link>
             ))}
           </div>
+        ) : (
+          <EmptyState text="No boards matched your search." />
         )}
+      </Section>
 
-        {/* Creators Grid */}
-        {activeTab === 'creators' && (
-        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6">
-          {filteredCreators.map((creator) => (
-            <div key={creator.id} className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden group">
-              <div className="aspect-square relative">
-                <Link href={`/profile/${creator.username}`} className="relative block w-full h-full">
-                  {/* Gradient fallback - always rendered as background */}
-                  <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center absolute inset-0 z-0">
-                    <span className="text-white text-2xl sm:text-4xl font-bold">
-                      {creator.name?.[0]?.toUpperCase() || creator.username?.[0]?.toUpperCase() || '?'}
-                    </span>
+      <Section title="People" subtitle="Find board owners and contributors by name, handle, or bio.">
+        {filteredPeople.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filteredPeople.map((person) => (
+              <Link key={person.id} href={`/profile/${person.username}`} className="rounded-[28px] border border-white/10 bg-[#12121A] p-5 transition hover:-translate-y-1 hover:border-[#D4AF37]/30 hover:shadow-[0_24px_90px_rgba(0,0,0,0.36)]">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[#D4AF37]/30 bg-[#D4AF37]/10 text-lg font-semibold text-[#D4AF37]">
+                    {person.name?.[0] || person.username[0]}
                   </div>
-                  {/* Image on top - hides on error to show gradient */}
-                  {creator.profile_photo && (
-                    <img
-                      src={creator.profile_photo}
-                      alt={creator.name}
-                      className="w-full h-full object-cover absolute inset-0 z-10"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
-                  )}
-                </Link>
-                {/* Hover overlay with gradient for better visibility */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 z-20 flex items-end justify-end p-2 sm:p-3">
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handlePinProfile(creator);
-                    }}
-                    className="bg-red-500 hover:bg-red-600 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-sm sm:text-base font-medium shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-all duration-300 flex items-center gap-1 sm:gap-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 sm:h-4 sm:w-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M16 4a1 1 0 01.117 1.993L16 6h-.764l-1.39 4.17a2.001 2.001 0 01-.322 5.826L13.382 16H12v5a1 1 0 01-1.993.117L10 21v-5H8.618l-.142.004a2.001 2.001 0 01-.322-5.834L6.764 6H6a1 1 0 01-.117-1.993L6 4h10z"/>
-                    </svg>
-                    Pin
-                  </button>
-                </div>
-              </div>
-              <div className="p-3 sm:p-4">
-                <Link href={`/profile/${creator.username}`} className="block hover:text-blue-600 transition-colors">
-                  <h3 className="font-semibold text-gray-900 truncate text-sm sm:text-base">{creator.name}</h3>
-                  <p className="text-gray-600 text-xs sm:text-sm">@{creator.username}</p>
-                  {creator.bio && (
-                    <p className="text-gray-700 text-xs sm:text-sm mt-1 sm:mt-2 line-clamp-2 hidden sm:block">{creator.bio}</p>
-                  )}
-                </Link>
-                
-                {/* Tags */}
-                {creator.tags_created.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {creator.tags_created.slice(0, 2).map(tag => (
-                      <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
-                        {tag}
-                      </span>
-                    ))}
-                    {creator.tags_created.length > 2 && (
-                      <span className="text-xs text-gray-400">
-                        +{creator.tags_created.length - 2}
-                      </span>
-                    )}
-                  </div>
-                )}
-                
-                {/* Stats */}
-                <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
-                  <span>{creator.country}</span>
-                  <div className="flex space-x-2">
-                    <span>📌 {creator.pin_count}</span>
-                    <span>👁️ {creator.view_count}</span>
+                  <div>
+                    <div className="text-base font-semibold text-[#F0F0F5]">{person.name}</div>
+                    <div className="text-sm text-[#9CA3AF]">@{person.username}</div>
                   </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-        )}
-
-        {/* Empty State */}
-        {activeTab === 'creators' && filteredCreators.length === 0 && (
-          <div className="text-center py-16">
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No creators found</h3>
-            <p className="text-gray-600 mb-4">Try adjusting your filters or search terms</p>
-            <button
-              onClick={clearFilters}
-              className="text-blue-600 hover:text-blue-700 underline"
-            >
-              Clear all filters
-            </button>
-          </div>
-        )}
-
-        {/* Empty State for Boards */}
-        {activeTab === 'boards' && filteredBoards.length === 0 && (
-          <div className="text-center py-16">
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No boards found</h3>
-            <p className="text-gray-600 mb-4">Try adjusting your search terms</p>
-          </div>
-        )}
-
-        {/* Products Tab - Coming Soon */}
-        {activeTab === 'products' && (
-          <div className="py-8">
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-purple-100 via-pink-50 to-orange-100 p-12 max-w-2xl mx-auto">
-              <div className="absolute top-4 right-4">
-                <span className="bg-gradient-to-r from-purple-600 to-pink-600 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide">
-                  Coming Soon
-                </span>
-              </div>
-              <div className="flex flex-col items-center text-center">
-                <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                  </svg>
+                <p className="mt-4 text-sm leading-6 text-[#9CA3AF]">{person.bio || 'A board owner with useful contributions and a clear topic focus.'}</p>
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-[#F0F0F5]">{person.board_count} boards</span>
+                  <span className="rounded-full border border-[#D4AF37]/20 bg-[#D4AF37]/10 px-3 py-1 text-xs text-[#D4AF37]">{person.badge}</span>
                 </div>
-                <h3 className="text-2xl font-bold text-gray-800 mb-3">Creator Products Marketplace</h3>
-                <p className="text-gray-600 max-w-md mb-6">
-                  Discover and purchase digital products, courses, templates, eBooks, and more from your favorite creators. A one-stop shop for creator economy!
-                </p>
-                <div className="flex flex-wrap justify-center gap-3">
-                  <span className="bg-white/70 text-gray-700 px-4 py-2 rounded-full text-sm font-medium">📚 Courses</span>
-                  <span className="bg-white/70 text-gray-700 px-4 py-2 rounded-full text-sm font-medium">📝 Templates</span>
-                  <span className="bg-white/70 text-gray-700 px-4 py-2 rounded-full text-sm font-medium">🎨 Digital Art</span>
-                  <span className="bg-white/70 text-gray-700 px-4 py-2 rounded-full text-sm font-medium">📖 eBooks</span>
-                  <span className="bg-white/70 text-gray-700 px-4 py-2 rounded-full text-sm font-medium">🎵 Music</span>
-                  <span className="bg-white/70 text-gray-700 px-4 py-2 rounded-full text-sm font-medium">💼 Services</span>
-                </div>
-              </div>
-              <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-purple-200 rounded-full opacity-50 blur-2xl"></div>
-              <div className="absolute -top-8 -right-8 w-40 h-40 bg-pink-200 rounded-full opacity-50 blur-2xl"></div>
-            </div>
+              </Link>
+            ))}
           </div>
+        ) : (
+          <EmptyState text="No people matched your search." />
         )}
+      </Section>
 
-        {/* Invite Creators Section */}
-        <div className="mt-12 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-2xl p-8 text-white">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-3xl">🎯</span>
-                <h2 className="text-2xl font-bold">Can't find your favorite creator?</h2>
-              </div>
-              <p className="text-white/90">
-                Invite them to join Identify! Share this link with creators you love so they can build their profile and grow their audience.
-              </p>
-            </div>
-            <div className="flex flex-col items-center gap-3">
-              <button
-                onClick={() => {
-                  const inviteUrl = `${window.location.origin}/auth/signup?ref=${user?.id || 'invite'}`;
-                  navigator.clipboard.writeText(inviteUrl);
-                  setInviteCopied(true);
-                  setTimeout(() => setInviteCopied(false), 2000);
-                }}
-                className={`px-6 py-3 rounded-full font-semibold transition-all duration-200 flex items-center gap-2 ${
-                  inviteCopied
-                    ? 'bg-green-500 text-white'
-                    : 'bg-white text-purple-600 hover:bg-gray-100'
-                }`}
-              >
-                {inviteCopied ? (
-                  <>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Link Copied!
-                  </>
-                ) : (
-                  <>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                    </svg>
-                    Invite a Creator
-                  </>
-                )}
-              </button>
-              <span className="text-white/70 text-sm">🚀 Help creators get discovered!</span>
-            </div>
+      <Section title="Cards" subtitle="Structured recommendations with a short why note and a link.">
+        {filteredCards.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filteredCards.map((card) => (
+              <article key={card.id} className="rounded-[28px] border border-white/10 bg-[#12121A] p-5 transition hover:-translate-y-1 hover:border-[#D4AF37]/30 hover:shadow-[0_24px_90px_rgba(0,0,0,0.36)]">
+                <div className="flex items-center justify-between gap-3 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
+                  <span>{card.type}</span>
+                  <span className="rounded-full border border-[#10B981]/20 bg-[#10B981]/10 px-3 py-1 text-[#10B981]">Trustworthy</span>
+                </div>
+                <h3 className="mt-4 text-2xl font-semibold text-[#F0F0F5]">{card.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">{card.why}</p>
+                <div className="mt-5 flex items-center justify-between text-sm text-[#9CA3AF]">
+                  <span>{card.saves} saves · {card.clicks} clicks</span>
+                  <a href={card.link} className="inline-flex items-center gap-1 text-[#D4AF37] hover:text-[#F0C94A]">
+                    Open <FiArrowRight className="h-4 w-4" />
+                  </a>
+                </div>
+              </article>
+            ))}
           </div>
-        </div>
-      </main>
+        ) : (
+          <EmptyState text="No cards matched your search." />
+        )}
+      </Section>
+    </div>
+  );
+}
 
-      {/* Pin Profile Modal */}
-      {selectedProfile && (
-        <PinProfileModal
-          isOpen={pinModalOpen}
-          onClose={() => {
-            setPinModalOpen(false);
-            setSelectedProfile(null);
-          }}
-          profileId={selectedProfile.id}
-          profileName={selectedProfile.name}
-        />
-      )}
+function SummaryCard({ title, value, description }: { title: string; value: string; description: string }) {
+  return (
+    <div className="rounded-[28px] border border-white/10 bg-[#12121A] p-6">
+      <p className="text-xs uppercase tracking-[0.24em] text-[#D4AF37]">{title}</p>
+      <div className="mt-3 text-4xl font-semibold text-[#F0F0F5]">{value}</div>
+      <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">{description}</p>
+    </div>
+  );
+}
+
+function Section({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-4">
+      <div>
+        <p className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">{title}</p>
+        <h2 className="mt-2 text-2xl font-semibold text-[#F0F0F5]">{subtitle}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-[28px] border border-white/10 bg-[#12121A] p-6 text-sm text-[#9CA3AF]">
+      {text}
     </div>
   );
 }

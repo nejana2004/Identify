@@ -53,42 +53,28 @@ export async function DELETE(request: NextRequest) {
     console.log('Deleting account for user:', userId);
     
     // Delete user's data from public tables first (ignore errors for tables that might not have data)
-    // 1. Delete pins where user is the pinner
-    const { error: pinsError1 } = await supabaseAdmin
-      .from('pins')
-      .delete()
-      .eq('user_id', userId);
-    if (pinsError1) console.log('Pins delete 1:', pinsError1.message);
-    
-    // 2. Delete pins where user is the profile being pinned
-    const { error: pinsError2 } = await supabaseAdmin
-      .from('pins')
-      .delete()
-      .eq('profile_id', userId);
-    if (pinsError2) console.log('Pins delete 2:', pinsError2.message);
-    
-    // 3. Delete user's boards
+    // 1. Delete user's boards
     const { error: boardsError } = await supabaseAdmin
       .from('boards')
       .delete()
       .eq('user_id', userId);
     if (boardsError) console.log('Boards delete:', boardsError.message);
     
-    // 4. Delete user's links
+    // 2. Delete user's links
     const { error: linksError } = await supabaseAdmin
       .from('user_links')
       .delete()
       .eq('user_id', userId);
     if (linksError) console.log('Links delete:', linksError.message);
     
-    // 5. Delete user from public.users table
+    // 3. Delete user from public.users table
     const { error: usersError } = await supabaseAdmin
       .from('users')
       .delete()
       .eq('id', userId);
     if (usersError) console.log('Users delete:', usersError.message);
     
-    // 6. Finally delete the auth user
+    // 4. Finally delete the auth user
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
     
     if (deleteError) {

@@ -146,36 +146,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to create notification when someone pins a profile
-CREATE OR REPLACE FUNCTION notify_pin()
-RETURNS TRIGGER AS $$
-DECLARE
-  board_title TEXT;
-  pinner_name TEXT;
-BEGIN
-  SELECT title INTO board_title FROM boards WHERE id = NEW.board_id;
-  SELECT name INTO pinner_name FROM users WHERE id = (SELECT user_id FROM boards WHERE id = NEW.board_id);
-  
-  INSERT INTO notifications (user_id, type, title, message, from_user_id, board_id)
-  VALUES (
-    NEW.profile_id,
-    'pin',
-    'You were pinned to a board!',
-    pinner_name || ' pinned you to "' || board_title || '"',
-    (SELECT user_id FROM boards WHERE id = NEW.board_id),
-    NEW.board_id
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Trigger for pin notifications
-DROP TRIGGER IF EXISTS trigger_notify_pin ON pins;
-CREATE TRIGGER trigger_notify_pin
-  AFTER INSERT ON pins
-  FOR EACH ROW
-  EXECUTE FUNCTION notify_pin();
-
 -- Grant access to roles for Data API
 GRANT SELECT ON public.notifications TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;

@@ -1,21 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
 
-const geistSans = Geist({
+const inter = Inter({
   variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
+const jetBrainsMono = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "Identify - Pinterest for Creators",
-  description: "Discover and organize amazing creators in your personalized boards",
+  title: "Identify - Boards, posts, cards, and trust",
+  description: "Identify is a knowledge-first platform for boards, posts, cards, search, and transparent trust signals.",
   icons: {
     icon: '/favicon.svg',
   },
@@ -27,9 +27,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50 min-h-screen`}
+        suppressHydrationWarning
+        className={`${inter.variable} ${jetBrainsMono.variable} antialiased min-h-screen bg-[#050508] text-[#F0F0F5]`}
       >
         <Header />
         <main>

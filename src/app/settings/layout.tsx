@@ -71,17 +71,6 @@ export default function SettingsLayout({
               </Link>
               
               <Link 
-                href="/settings/links"
-                className={`whitespace-nowrap px-3 py-2 rounded-md text-sm md:text-base ${
-                  isActive('/settings/links') 
-                    ? 'bg-blue-50 text-blue-700 font-medium' 
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Links
-              </Link>
-              
-              <Link 
                 href="/settings/boards"
                 className={`whitespace-nowrap px-3 py-2 rounded-md text-sm md:text-base ${
                   isActive('/settings/boards') 
@@ -103,16 +92,6 @@ export default function SettingsLayout({
                 Account
               </Link>
               
-              <Link 
-                href="/settings/help"
-                className={`whitespace-nowrap px-3 py-2 rounded-md text-sm md:text-base ${
-                  isActive('/settings/help') 
-                    ? 'bg-blue-50 text-blue-700 font-medium' 
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Help
-              </Link>
             </nav>
             
             <div className="hidden md:block mt-8 pt-4 border-t border-gray-200">

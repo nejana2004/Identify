@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { trackProfileView } from '@/lib/analytics';
 import { FaGlobe, FaInstagram, FaTwitter, FaTiktok, FaYoutube, FaLinkedin, FaGithub, 
          FaFacebook, FaDiscord, FaTwitch, FaSpotify, FaPinterest, FaSnapchatGhost, 
          FaWhatsapp, FaTelegram, FaEnvelope, FaLink } from 'react-icons/fa';
@@ -69,11 +68,6 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
         }
         
         setProfile(profileData);
-        
-        // Track profile view
-        if (profileData.id) {
-          trackProfileView(profileData.id);
-        }
         
         // Check if current user is following this profile (skip for now since follows table may not exist)
         // if (user) {
@@ -234,10 +228,10 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
               <span className="font-semibold">{profile.board_count || 0}</span> boards
             </div>
             <div>
-              <span className="font-semibold">{profile.pin_count || 0}</span> pins
+              <span className="font-semibold">{links.length || 0}</span> links
             </div>
             <div>
-              <span className="font-semibold">{profile.view_count || 0}</span> views
+              <span className="font-semibold">{collections.length || 0}</span> featured boards
             </div>
           </div>
         </div>

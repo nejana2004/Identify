@@ -2,14 +2,31 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import AuthButton from './AuthButton';
 import { supabase } from '@/lib/supabaseClient';
-import { FiBell, FiBarChart2 } from 'react-icons/fi';
+import { FiBell, FiPlusCircle } from 'react-icons/fi';
 
 export default function Header() {
+  const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const navItems = [
+    { href: '/discover', label: 'Discover' },
+    { href: '/boards', label: 'My Boards' },
+    { href: '/search', label: 'Search' },
+    { href: '/me', label: 'Me' },
+  ];
+
+  function isActive(href: string) {
+    if (href === '/boards') {
+      return pathname.startsWith('/boards') || pathname.startsWith('/b');
+    }
+
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
 
   useEffect(() => {
     async function loadNotifications() {
@@ -44,61 +61,56 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="bg-white shadow-sm border-b sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-[#050508]/90 backdrop-blur-xl">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <div className="flex items-center">
-            <Link href="/" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-black rounded text-white flex items-center justify-center font-bold">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#D4AF37]/50 bg-[#12121A] text-[#D4AF37] shadow-[0_0_24px_rgba(212,175,55,0.12)]">
                 I
               </div>
-              <span className="text-xl font-bold text-gray-900">Identify</span>
+              <div className="leading-tight">
+                <div className="text-sm font-semibold tracking-wide text-[#F0F0F5]">Identify</div>
+                <div className="text-[11px] uppercase tracking-[0.24em] text-[#6B7280]">Boards • posts • cards</div>
+              </div>
             </Link>
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex md:items-center md:space-x-6">
-            <Link 
-              href="/" 
-              className="text-gray-700 hover:text-gray-900 px-3 py-2 text-sm font-medium"
-            >
-              Home
-            </Link>
-            <Link 
-              href="/explore" 
-              className="text-gray-700 hover:text-gray-900 px-3 py-2 text-sm font-medium"
-            >
-              Explore
-            </Link>
-            <Link 
-              href="/boards" 
-              className="text-gray-700 hover:text-gray-900 px-3 py-2 text-sm font-medium"
-            >
-              Boards
-            </Link>
+          <nav className="hidden items-center gap-1 md:flex">
+            {navItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`rounded-full px-4 py-2 text-sm transition-colors ${isActive(item.href) ? 'bg-white/5 text-[#F0F0F5]' : 'text-[#9CA3AF] hover:bg-white/5 hover:text-[#F0F0F5]'}`}
+              >
+                {item.label}
+              </Link>
+            ))}
           </nav>
 
-          {/* Right side: Notifications + Insights + Auth + Mobile menu button */}
-          <div className="flex items-center space-x-2 sm:space-x-3">
+          {/* Right side: Notifications + Auth + Mobile menu button */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/boards"
+              className="hidden items-center gap-2 rounded-full border border-[#D4AF37]/30 bg-[#12121A] px-4 py-2 text-sm font-medium text-[#F0F0F5] transition hover:border-[#D4AF37] hover:bg-[#1A1A24] md:flex"
+            >
+              <FiPlusCircle className="h-4 w-4 text-[#D4AF37]" />
+              Start a board
+            </Link>
+
             {/* Notifications Icon - Only show when logged in */}
             {user && (
               <>
                 <Link
-                  href="/insights"
-                  className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Insights"
-                >
-                  <FiBarChart2 className="w-5 h-5" />
-                </Link>
-                <Link
                   href="/notifications"
-                  className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+                  className="relative rounded-full border border-white/10 bg-white/[0.03] p-2 text-[#9CA3AF] transition hover:border-[#D4AF37]/40 hover:text-[#F0F0F5]"
                   title="Notifications"
                 >
-                  <FiBell className="w-5 h-5" />
+                  <FiBell className="h-5 w-5" />
                   {unreadCount > 0 && (
-                    <span className="absolute top-0 right-0 inline-flex items-center justify-center w-4 h-4 text-xs font-bold text-white bg-red-500 rounded-full">
+                    <span className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#D4AF37] text-[10px] font-bold text-[#0A0A0F]">
                       {unreadCount > 9 ? '9+' : unreadCount}
                     </span>
                   )}
@@ -117,7 +129,7 @@ export default function Header() {
             {/* Mobile menu button */}
             <button
               type="button"
-              className="md:hidden inline-flex items-center justify-center p-2 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-100"
+              className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-[#9CA3AF] hover:bg-white/5 hover:text-[#F0F0F5]"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-expanded={mobileMenuOpen}
             >
@@ -138,53 +150,42 @@ export default function Header() {
 
       {/* Mobile Navigation Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t bg-white">
+        <div className="border-t border-white/10 bg-[#050508] md:hidden">
           <div className="px-4 pt-2 pb-3 space-y-1">
-            <Link 
-              href="/" 
-              className="block px-3 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Home
-            </Link>
-            <Link 
-              href="/explore" 
-              className="block px-3 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Explore
-            </Link>
-            <Link 
-              href="/boards" 
-              className="block px-3 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Boards
-            </Link>
+            {navItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="block rounded-lg px-3 py-3 text-base font-medium text-[#F0F0F5] hover:bg-white/5"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {item.label}
+              </Link>
+            ))}
             {user && (
               <>
                 <Link 
                   href="/notifications" 
-                  className="flex items-center justify-between px-3 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between rounded-lg px-3 py-3 text-base font-medium text-[#F0F0F5] hover:bg-white/5"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   <span className="flex items-center gap-2">
-                    <FiBell className="w-5 h-5" />
+                    <FiBell className="h-5 w-5" />
                     Notifications
                   </span>
                   {unreadCount > 0 && (
-                    <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">
+                    <span className="inline-flex items-center justify-center rounded-full bg-[#D4AF37] px-2 py-0.5 text-xs font-bold text-[#0A0A0F]">
                       {unreadCount}
                     </span>
                   )}
                 </Link>
                 <Link 
-                  href="/insights" 
-                  className="flex items-center gap-2 px-3 py-3 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-lg"
+                  href="/boards" 
+                  className="flex items-center gap-2 rounded-lg px-3 py-3 text-base font-medium text-[#F0F0F5] hover:bg-white/5"
                   onClick={() => setMobileMenuOpen(false)}
                 >
-                  <FiBarChart2 className="w-5 h-5" />
-                  Insights
+                  <FiPlusCircle className="h-5 w-5" />
+                  Start a board
                 </Link>
               </>
             )}

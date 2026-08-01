@@ -11,16 +11,6 @@ GRANT SELECT ON public.boards TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.boards TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.boards TO service_role;
 
--- Grants for pins table (if exists)
-GRANT SELECT ON public.pins TO anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.pins TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.pins TO service_role;
-
--- Grants for profile_views table (if exists)
-GRANT SELECT ON public.profile_views TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.profile_views TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.profile_views TO service_role;
-
 -- Grants for user_links table (if exists)
 GRANT SELECT ON public.user_links TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_links TO authenticated;
@@ -45,6 +35,22 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_join_requests TO service_ro
 GRANT SELECT ON public.board_members TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_members TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_members TO service_role;
+
+GRANT SELECT ON public.threads TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.threads TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.threads TO service_role;
+
+GRANT SELECT ON public.thread_replies TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.thread_replies TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.thread_replies TO service_role;
+
+GRANT SELECT ON public.product_cards TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_cards TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_cards TO service_role;
+
+GRANT SELECT ON public.transactions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.transactions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.transactions TO service_role;
 
 -- Grants for board_followers table (if exists)
 GRANT SELECT ON public.board_followers TO anon;

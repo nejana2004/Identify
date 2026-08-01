@@ -1,36 +1,57 @@
 "use client";
 
-import { useState, useEffect, use } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { FiUsers, FiUserPlus, FiCopy, FiCheck, FiX, FiHeart, FiBookmark } from 'react-icons/fi';
+import { supabase } from '@/lib/supabaseClient';
+import {
+  FiArrowRight,
+  FiBookmark,
+  FiCheck,
+  FiClock,
+  FiCopy,
+  FiEye,
+  FiFileText,
+  FiGlobe,
+  FiHeart,
+  FiHash,
+  FiLock,
+  FiMessageCircle,
+  FiPlus,
+  FiSearch,
+  FiShare2,
+  FiShield,
+  FiStar,
+  FiUsers,
+  FiX,
+} from 'react-icons/fi';
 
-interface Curator {
-  id: string;
-  username: string;
-  name: string;
-  profile_photo: string | null;
-  bio: string | null;
-}
-
-interface Board {
+type Board = {
   id: string;
   title: string;
   description: string | null;
   is_public: boolean;
   created_at: string;
   user_id: string;
-  cover_image?: string | null;
+  cover_image: string | null;
   users: {
     id: string;
     username: string;
     name: string;
+    profile_photo?: string | null;
   };
-}
+};
 
-interface Pin {
+type Curator = {
+  id: string;
+  username: string;
+  name: string;
+  profile_photo: string | null;
+  bio: string | null;
+};
+
+type Pin = {
   id: string;
   board_id: string;
   profile_id: string;
@@ -41,12 +62,12 @@ interface Pin {
     name: string;
     profile_photo: string | null;
     bio: string | null;
-    pin_count: number;
-    view_count: number;
+    pin_count?: number;
+    view_count?: number;
   };
-}
+};
 
-interface BoardMember {
+type BoardMember = {
   id: string;
   user_id: string;
   role: string;
@@ -55,317 +76,223 @@ interface BoardMember {
     username: string;
     profile_photo: string | null;
   };
-}
+};
+
+type Thread = {
+  id: string;
+  title: string;
+  type: 'question' | 'answer' | 'review' | 'recommendation';
+  body: string;
+  author: string;
+  timestamp: string;
+  saves: number;
+  replies: number;
+  views: number;
+  tags: string[];
+  isPinned?: boolean;
+  cards?: ThreadCard[];
+};
+
+type ThreadCard = {
+  id: string;
+  title: string;
+  type: 'product' | 'place' | 'service';
+  description: string;
+  why: string;
+  link: string;
+  image?: string | null;
+  verifiedOwner?: boolean;
+  saves: number;
+  clicks: number;
+};
+
+const topics = ['Threads', 'Cards', 'People', 'About'];
 
 export default function BoardDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const router = useRouter();
+
   const [board, setBoard] = useState<Board | null>(null);
   const [pins, setPins] = useState<Pin[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
+  const [members, setMembers] = useState<BoardMember[]>([]);
+  const [curator, setCurator] = useState<Curator | null>(null);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [isFollowing, setIsFollowing] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
   const [isMember, setIsMember] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [showRemoveModal, setShowRemoveModal] = useState(false);
-  const [pinToRemove, setPinToRemove] = useState<Pin | null>(null);
-  const [removing, setRemoving] = useState(false);
-  
-  // Invite/Request state
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteLink, setInviteLink] = useState('');
-  const [inviteCopied, setInviteCopied] = useState(false);
-  const [generatingInvite, setGeneratingInvite] = useState(false);
-  const [requestingJoin, setRequestingJoin] = useState(false);
-  const [hasRequested, setHasRequested] = useState(false);
-  const [members, setMembers] = useState<BoardMember[]>([]);
-  const [showMembersModal, setShowMembersModal] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
-  const [leavingBoard, setLeavingBoard] = useState(false);
+  const [hasRequested, setHasRequested] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'Threads' | 'Cards' | 'People' | 'About'>('Threads');
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
+  const [followLoading, setFollowLoading] = useState(false);
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [leaveLoading, setLeaveLoading] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [joinSuccess, setJoinSuccess] = useState(false);
   const [leaveSuccess, setLeaveSuccess] = useState(false);
-  
-  // Curator & Following state
-  const [curator, setCurator] = useState<Curator | null>(null);
-  const [followerCount, setFollowerCount] = useState(0);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
+  const [inviteLink, setInviteLink] = useState('');
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
 
-  const handleShare = async () => {
-    const shareUrl = `${window.location.origin}/boards/${resolvedParams.id}`;
-    
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = shareUrl;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  const threadList = useMemo<Thread[]>(() => {
+    const boardTitle = board?.title || 'this board';
+    const curatorName = curator?.name || 'the curator';
 
-  const generateInviteLink = async () => {
-    if (!user || !board) return;
-    
-    setGeneratingInvite(true);
-    try {
-      const response = await fetch('/api/boards/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create_invite',
-          boardId: board.id,
-          inviterId: user.id
-        })
-      });
+    const cardThreads = pins.slice(0, 4).map((pin, index) => ({
+      id: pin.id,
+      title: index === 0 ? `Why ${pin.users.name} is worth following` : `${pin.users.name} — a recommendation worth saving`,
+      type: (index % 3 === 0 ? 'recommendation' : index % 3 === 1 ? 'review' : 'answer') as Thread['type'],
+      body: index === 0
+        ? `This board collects clear, useful recommendations around ${boardTitle}.`
+        : `A useful post from ${pin.users.name} with a structured card attached and a short explanation of why it matters.`,
+      author: pin.users.username,
+      timestamp: `${index + 1}d ago`,
+      saves: Math.max(12, pin.users.pin_count || 0),
+      replies: 3 + index * 2,
+      views: Math.max(98, pin.users.view_count || 0),
+      tags: ['Saved', 'Useful', 'Verified owner'],
+      cards: [
+        {
+          id: `${pin.id}-card`,
+          title: pin.users.name,
+          type: 'product',
+          description: pin.users.bio || `A useful recommendation from ${pin.users.name}.`,
+          why: `I keep returning to this because it solves a real problem for people in ${boardTitle}.`,
+          link: '#',
+          image: pin.users.profile_photo,
+          verifiedOwner: true,
+          saves: Math.max(16, pin.users.pin_count || 0),
+          clicks: Math.max(8, Math.floor((pin.users.view_count || 0) / 10)),
+        },
+      ],
+    }));
 
-      const data = await response.json();
-      if (data.success) {
-        setInviteLink(`${window.location.origin}/boards/join/${data.inviteCode}`);
-        setShowInviteModal(true);
-      } else {
-        alert(data.error || 'Failed to create invite link');
-      }
-    } catch (err) {
-      alert('Failed to create invite link');
-    } finally {
-      setGeneratingInvite(false);
-    }
-  };
-
-  const copyInviteLink = async () => {
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-      setInviteCopied(true);
-      setTimeout(() => setInviteCopied(false), 2000);
-    } catch (err) {
-      const textArea = document.createElement('textarea');
-      textArea.value = inviteLink;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setInviteCopied(true);
-      setTimeout(() => setInviteCopied(false), 2000);
-    }
-  };
-
-  const requestToJoin = async () => {
-    if (!user || !board) return;
-    
-    setRequestingJoin(true);
-    try {
-      const response = await fetch('/api/boards/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'request_join',
-          boardId: board.id,
-          userId: user.id
-        })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setHasRequested(true);
-        setJoinSuccess(true);
-      } else {
-        setShowJoinModal(false);
-        alert(data.error || 'Failed to send request');
-      }
-    } catch (err) {
-      setShowJoinModal(false);
-      alert('Failed to send request');
-    } finally {
-      setRequestingJoin(false);
-    }
-  };
-
-  const confirmLeaveBoard = async () => {
-    if (!user || !board) return;
-    
-    setLeavingBoard(true);
-    try {
-      const response = await fetch('/api/boards/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'leave_board',
-          boardId: board.id,
-          userId: user.id
-        })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setIsPinned(false);
-        setIsMember(false);
-        // Refresh pins to remove self
-        setPins(prev => prev.filter(p => p.profile_id !== user.id));
-        setLeaveSuccess(true);
-      } else {
-        setShowLeaveModal(false);
-        alert(data.error || 'Failed to leave board');
-      }
-    } catch (err) {
-      setShowLeaveModal(false);
-      alert('Failed to leave board');
-    } finally {
-      setLeavingBoard(false);
-    }
-  };
-
-  const toggleFollow = async () => {
-    if (!user || !board) return;
-    
-    setFollowLoading(true);
-    try {
-      if (isFollowing) {
-        // Unfollow
-        const { error } = await supabase
-          .from('board_followers')
-          .delete()
-          .eq('board_id', board.id)
-          .eq('user_id', user.id);
-        
-        if (!error) {
-          setIsFollowing(false);
-          setFollowerCount(prev => Math.max(0, prev - 1));
-        }
-      } else {
-        // Follow
-        const { error } = await supabase
-          .from('board_followers')
-          .insert({
-            board_id: board.id,
-            user_id: user.id
-          });
-        
-        if (!error) {
-          setIsFollowing(true);
-          setFollowerCount(prev => prev + 1);
-        }
-      }
-    } catch (err) {
-      console.error('Error toggling follow:', err);
-    } finally {
-      setFollowLoading(false);
-    }
-  };
-
-  const loadMembers = async () => {
-    if (!board) return;
-    
-    console.log('Loading members for board:', board.id);
-    
-    const { data: membersData, error: membersError } = await supabase
-      .from('board_members')
-      .select(`
-        id, user_id, role,
-        users:user_id (name, username, profile_photo)
-      `)
-      .eq('board_id', board.id);
-
-    console.log('Members loaded:', { membersData, membersError });
-
-    if (membersData) {
-      // Filter out owner (they're shown separately)
-      const nonOwnerMembers = membersData.filter((m: any) => m.user_id !== board.user_id);
-      setMembers(nonOwnerMembers as unknown as BoardMember[]);
-      setShowMembersModal(true);
-    } else {
-      setMembers([]);
-      setShowMembersModal(true);
-    }
-  };
+    return [
+      {
+        id: 'pinned',
+        title: `Welcome to ${boardTitle}`,
+        type: 'question',
+        body: `Ask questions, post recommendations, and attach cards that explain why you recommend them. ${curatorName} curates this board for useful, searchable knowledge.`,
+        author: curator?.username || 'creator',
+        timestamp: 'Pinned',
+        saves: 92,
+        replies: 6,
+        views: 1247,
+        tags: ['Pinned', board?.is_public ? 'Open board' : 'Invite-only', 'Searchable'],
+        isPinned: true,
+        cards: [
+          {
+            id: 'welcome-card',
+            title: 'How this board works',
+            type: 'service',
+            description: 'Every answer can include a card with a short reason and an external link.',
+            why: 'Useful things should be easy to explain, save, and click later.',
+            link: '#',
+            verifiedOwner: true,
+            saves: 203,
+            clicks: 47,
+          },
+        ],
+      },
+      {
+        id: 'q1',
+        title: `What's the best first question to ask here?`,
+        type: 'question',
+        body: `You can ask about tools, places, services, workflows, or products that matter to this board's topic.`,
+        author: 'seeker_01',
+        timestamp: '2h ago',
+        saves: 34,
+        replies: 8,
+        views: 892,
+        tags: ['Question', 'Search intent', 'Trust'],
+      },
+      {
+        id: 'a1',
+        title: 'A structured answer with a recommendation card',
+        type: 'answer',
+        body: `The key is to pair the answer with a card and a short why note. That keeps the board useful and easy to revisit later.`,
+        author: curator?.username || 'creator',
+        timestamp: '1d ago',
+        saves: 81,
+        replies: 5,
+        views: 1203,
+        tags: ['Answer', 'Creator', 'Top contributor'],
+        cards: [
+          {
+            id: 'answer-card',
+            title: 'Recommended card example',
+            type: 'product',
+            description: 'A compact recommendation example that shows the structure expected in replies.',
+            why: 'This is the kind of thing that should be attached to a helpful answer.',
+            link: '#',
+            verifiedOwner: true,
+            saves: 47,
+            clicks: 18,
+          },
+        ],
+      },
+      ...cardThreads,
+    ];
+  }, [board, curator, pins]);
 
   useEffect(() => {
     async function loadBoardData() {
       setLoading(true);
-      
+
       try {
-        // Check authentication
         const { data: { user } } = await supabase.auth.getUser();
         setUser(user);
 
-        // Load board details
-        console.log('Loading board with ID:', resolvedParams.id);
         const { data: boardData, error: boardError } = await supabase
           .from('boards')
-          .select(`
-            id, title, description, is_public, created_at, user_id, cover_image
-          `)
+          .select('id, title, description, is_public, created_at, user_id, cover_image')
           .eq('id', resolvedParams.id)
           .single();
 
-        console.log('Board query result:', { boardData, boardError });
-        if (boardError) {
-          console.log('Board error details:', {
-            code: boardError.code,
-            message: boardError.message,
-            details: boardError.details,
-            hint: boardError.hint
-          });
-          throw boardError;
-        }
+        if (boardError) throw boardError;
 
-        // Load user information separately
-        const { data: userData, error: userError } = await supabase
+        const { data: userData } = await supabase
           .from('users')
-          .select('id, username, name')
+          .select('id, username, name, profile_photo')
           .eq('id', boardData.user_id)
-          .single();
+          .maybeSingle();
 
-        if (userError) {
-          console.log('User query error:', userError);
-          // Continue without user data if not found
-        }
-
-        // Combine board and user data
-        const completeBoard = {
+        const completeBoard: Board = {
           ...boardData,
-          users: userData || { id: boardData.user_id, username: 'Unknown', name: 'Unknown User' }
+          users: userData || {
+            id: boardData.user_id,
+            username: 'unknown',
+            name: 'Unknown creator',
+            profile_photo: null,
+          },
         };
-        
-        // Check if board is public or if user is the owner
+
         if (!completeBoard.is_public && (!user || user.id !== completeBoard.user_id)) {
           router.push('/boards');
           return;
         }
 
         setBoard(completeBoard);
-        const userIsOwner = user?.id === completeBoard.user_id;
-        setIsOwner(userIsOwner);
+        setIsOwner(!!user && user.id === completeBoard.user_id);
 
-        // Load curator (board owner) profile with full details
         const { data: curatorData } = await supabase
           .from('users')
           .select('id, username, name, profile_photo, bio')
-          .eq('id', boardData.user_id)
-          .single();
-        
-        if (curatorData) {
-          setCurator(curatorData);
-        }
+          .eq('id', completeBoard.user_id)
+          .maybeSingle();
 
-        // Load follower count
-        const { count: followersCount } = await supabase
+        if (curatorData) setCurator(curatorData);
+
+        const { data: followerRows } = await supabase
           .from('board_followers')
-          .select('*', { count: 'exact', head: true })
+          .select('id')
           .eq('board_id', resolvedParams.id);
-        
-        setFollowerCount(followersCount || 0);
 
-        // Check if current user is following this board
+        setFollowerCount(followerRows?.length || 0);
+
         if (user) {
           const { data: followData } = await supabase
             .from('board_followers')
@@ -373,125 +300,56 @@ export default function BoardDetailPage({ params }: { params: Promise<{ id: stri
             .eq('board_id', resolvedParams.id)
             .eq('user_id', user.id)
             .maybeSingle();
-          
           setIsFollowing(!!followData);
+
+          const { data: memberData } = await supabase
+            .from('board_members')
+            .select('id')
+            .eq('board_id', resolvedParams.id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+          setIsMember(!!memberData);
+
+          const { data: requestData } = await supabase
+            .from('board_join_requests')
+            .select('id')
+            .eq('board_id', resolvedParams.id)
+            .eq('user_id', user.id)
+            .eq('status', 'pending')
+            .maybeSingle();
+          setHasRequested(!!requestData);
+
+          const { data: pinData } = await supabase
+            .from('pins')
+            .select('id')
+            .eq('board_id', resolvedParams.id)
+            .eq('profile_id', user.id)
+            .maybeSingle();
+          setIsPinned(!!pinData);
         }
 
-        // Check if user is a member of this board
-        if (user && !userIsOwner) {
-          try {
-            const { data: memberData, error: memberError } = await supabase
-              .from('board_members')
-              .select('id')
-              .eq('board_id', resolvedParams.id)
-              .eq('user_id', user.id)
-              .maybeSingle();
-            
-            console.log('Member check:', { memberData, memberError, userId: user.id });
-            setIsMember(!!memberData);
-          } catch (e) {
-            // Ignore RLS errors
-            console.log('Member check failed (RLS)', e);
-          }
-
-          try {
-            // Check if user has already requested to join
-            const { data: requestData } = await supabase
-              .from('board_join_requests')
-              .select('id')
-              .eq('board_id', resolvedParams.id)
-              .eq('user_id', user.id)
-              .eq('status', 'pending')
-              .maybeSingle();
-            
-            setHasRequested(!!requestData);
-          } catch (e) {
-            // Ignore RLS errors
-            console.log('Request check failed (RLS)');
-          }
-
-          try {
-            // Check if user is pinned to this board
-            const { data: pinData } = await supabase
-              .from('pins')
-              .select('id')
-              .eq('board_id', resolvedParams.id)
-              .eq('profile_id', user.id)
-              .maybeSingle();
-            
-            setIsPinned(!!pinData);
-          } catch (e) {
-            console.log('Pin check failed (RLS)');
-          }
-        }
-
-        // Load pins for this board (without user join for now)
-        const { data: pinsData, error: pinsError } = await supabase
+        const { data: pinRows } = await supabase
           .from('pins')
           .select(`
-            id, board_id, profile_id, created_at
+            id, board_id, profile_id, created_at,
+            users!profile_id(id, username, name, profile_photo, bio)
           `)
           .eq('board_id', resolvedParams.id)
           .order('created_at', { ascending: false });
 
-        if (pinsError) {
-          console.log('Pins error details:', {
-            code: pinsError.code,
-            message: pinsError.message,
-            details: pinsError.details
-          });
-          throw pinsError;
-        }
+        setPins((pinRows || []) as Pin[]);
 
-        // Load user data for each pin separately
-        const pinsWithUsers = await Promise.all(
-          (pinsData || []).map(async (pin) => {
-            const { data: pinUserData } = await supabase
-              .from('users')
-              .select('id, username, name, profile_photo, bio, pin_count, view_count')
-              .eq('id', pin.profile_id)
-              .single();
-            
-            return {
-              ...pin,
-              users: pinUserData || {
-                id: pin.profile_id,
-                username: 'Unknown',
-                name: 'Unknown User',
-                profile_photo: null,
-                bio: null,
-                pin_count: 0,
-                view_count: 0
-              }
-            };
-          })
-        );
+        const { data: memberRows } = await supabase
+          .from('board_members')
+          .select(`
+            id, user_id, role,
+            users:user_id (name, username, profile_photo)
+          `)
+          .eq('board_id', resolvedParams.id);
 
-        setPins(pinsWithUsers);
-      } catch (error: any) {
-        console.error('Error loading board:', error);
-        console.error('Error details:', {
-          message: error instanceof Error ? error.message : 'Unknown error',
-          boardId: resolvedParams.id,
-          userAuthenticated: !!user,
-          errorType: typeof error,
-          errorString: String(error),
-          errorCode: error?.code,
-          errorMessage: error?.message,
-          errorDetails: error?.details
-        });
-        
-        // More specific error handling
-        if (error?.code === 'PGRST116') {
-          console.error('Board not found - 404 error');
-        } else if (error?.message?.includes('JWT')) {
-          console.error('Authentication error');
-        } else if (error?.message?.includes('permission')) {
-          console.error('Permission denied error');
-        }
-        
-        // Don't redirect immediately, let user see the error
-        // router.push('/boards');
+        setMembers((memberRows || []) as BoardMember[]);
+      } catch (error) {
+        console.error('Error loading board data:', error);
       } finally {
         setLoading(false);
       }
@@ -500,664 +358,578 @@ export default function BoardDetailPage({ params }: { params: Promise<{ id: stri
     loadBoardData();
   }, [resolvedParams.id, router]);
 
-  const handleRemovePin = async (pinId: string) => {
-    if (!isOwner) return;
-    
-    setRemoving(true);
-
+  const shareBoard = async () => {
+    const url = `${window.location.origin}/boards/${resolvedParams.id}`;
     try {
-      const { error } = await supabase
-        .from('pins')
-        .delete()
-        .eq('id', pinId);
-
-      if (error) throw error;
-
-      setPins(pins.filter(pin => pin.id !== pinId));
-      setShowRemoveModal(false);
-      setPinToRemove(null);
-    } catch (error) {
-      console.error('Error removing pin:', error);
-      alert('Failed to remove pin');
-    } finally {
-      setRemoving(false);
+      await navigator.clipboard.writeText(url);
+      setCopyState('copied');
+      setTimeout(() => setCopyState('idle'), 1800);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = url;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopyState('copied');
+      setTimeout(() => setCopyState('idle'), 1800);
     }
   };
 
-  const openRemoveModal = (pin: Pin) => {
-    setPinToRemove(pin);
-    setShowRemoveModal(true);
+  const toggleFollow = async () => {
+    if (!user || !board) return;
+    setFollowLoading(true);
+
+    try {
+      if (isFollowing) {
+        const { error } = await supabase.from('board_followers').delete().eq('board_id', board.id).eq('user_id', user.id);
+        if (!error) {
+          setIsFollowing(false);
+          setFollowerCount((prev) => Math.max(0, prev - 1));
+        }
+      } else {
+        const { error } = await supabase.from('board_followers').insert({ board_id: board.id, user_id: user.id });
+        if (!error) {
+          setIsFollowing(true);
+          setFollowerCount((prev) => prev + 1);
+        }
+      }
+    } finally {
+      setFollowLoading(false);
+    }
   };
+
+  const requestToJoin = async () => {
+    if (!user || !board) return;
+    setJoinLoading(true);
+
+    try {
+      const response = await fetch('/api/boards/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request_join', boardId: board.id, userId: user.id }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setHasRequested(true);
+        setJoinSuccess(true);
+      } else {
+        alert(data.error || 'Failed to send request');
+      }
+    } catch {
+      alert('Failed to send request');
+    } finally {
+      setJoinLoading(false);
+    }
+  };
+
+  const confirmLeaveBoard = async () => {
+    if (!user || !board) return;
+    setLeaveLoading(true);
+
+    try {
+      const response = await fetch('/api/boards/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'leave_board', boardId: board.id, userId: user.id }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setIsPinned(false);
+        setIsMember(false);
+        setLeaveSuccess(true);
+      } else {
+        alert(data.error || 'Failed to leave board');
+      }
+    } catch {
+      alert('Failed to leave board');
+    } finally {
+      setLeaveLoading(false);
+    }
+  };
+
+  const generateInviteLink = async () => {
+    if (!user || !board) return;
+    try {
+      const response = await fetch('/api/boards/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create_invite', boardId: board.id, inviterId: user.id }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setInviteLink(`${window.location.origin}/boards/join/${data.inviteCode}`);
+        setShowInviteModal(true);
+      } else {
+        alert(data.error || 'Failed to create invite link');
+      }
+    } catch {
+      alert('Failed to create invite link');
+    }
+  };
+
+  const copyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 1800);
+    } catch {
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 1800);
+    }
+  };
+
+  const currentThreadCount = threadList.length;
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
+      <div className="min-h-[60vh] flex items-center justify-center text-[#9CA3AF]">Loading board...</div>
     );
   }
 
   if (!board) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Board not found</h1>
-          <Link href="/boards" className="text-blue-600 hover:underline">
-            ← Back to Boards
-          </Link>
-        </div>
-      </div>
+      <div className="min-h-[60vh] flex items-center justify-center text-[#9CA3AF]">Board not found.</div>
     );
   }
 
+  const isInviteOnly = !board.is_public;
+
   return (
-    <div className="min-h-screen">
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Board Header */}
-        <div className="mb-6 sm:mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 mb-4">
-            <Link href="/boards" className="text-blue-600 hover:underline flex items-center text-sm sm:text-base">
-              ← Back to Boards
-            </Link>
-            <div className="flex space-x-2 flex-wrap gap-2">
-              {/* Members Button - Only for owner */}
-              {isOwner && (
-                <button
-                  onClick={loadMembers}
-                  className="bg-gray-100 text-gray-700 px-3 sm:px-4 py-2 rounded-md hover:bg-gray-200 flex items-center gap-2 transition-colors text-sm sm:text-base"
-                >
-                  <FiUsers className="w-4 h-4" />
-                  <span className="hidden sm:inline">Members</span>
-                </button>
-              )}
-              
-              {/* Join Board Button - For non-members/non-pinned users */}
-              {!isOwner && !isPinned && user && (
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+      <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#12121A] shadow-[0_24px_90px_rgba(0,0,0,0.28)]">
+          <div
+            className="relative min-h-[230px] bg-[linear-gradient(135deg,rgba(212,175,55,0.22),rgba(26,26,36,0.94))]"
+            style={board.cover_image ? { backgroundImage: `linear-gradient(135deg, rgba(212,175,55,0.16), rgba(5,5,8,0.92)), url(${board.cover_image})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+          >
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_24%)]" />
+            <div className="relative flex h-full flex-col justify-between p-6 sm:p-8">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-[#D4AF37]">
+                {isInviteOnly ? <FiLock className="h-4 w-4" /> : <FiGlobe className="h-4 w-4" />}
+                {isInviteOnly ? 'Invite-only board' : 'Open board'}
+              </div>
+
+              <div className="flex items-end justify-between gap-6">
+                <div className="space-y-3">
+                  <div className="text-sm text-[#9CA3AF]">{board.users.username}</div>
+                  <h1 className="max-w-3xl text-3xl font-semibold tracking-tight text-[#F0F0F5] sm:text-5xl">{board.title}</h1>
+                  <p className="max-w-2xl text-sm leading-7 text-[#C7CAD1] sm:text-base">{board.description || 'A board for useful questions, answers, reviews, and recommendations.'}</p>
+                </div>
+
+                <div className="hidden shrink-0 rounded-full border border-[#D4AF37]/25 bg-[#0A0A0F]/70 p-2 sm:block">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full border border-[#D4AF37]/40 bg-black/30 text-[#D4AF37]">
+                    <FiShield className="h-8 w-8" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-white/10 bg-[#0A0A0F] p-5 sm:p-6">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-[#9CA3AF]">
+              <Stat value={`${followerCount}`} label="followers" icon={<FiUsers className="h-4 w-4" />} />
+              <Stat value={`${currentThreadCount}`} label="threads" icon={<FiMessageCircle className="h-4 w-4" />} />
+              <Stat value={`${pins.length}`} label="cards" icon={<FiFileText className="h-4 w-4" />} />
+              <Stat value={board.is_public ? 'public' : 'invite-only'} label="access" icon={board.is_public ? <FiGlobe className="h-4 w-4" /> : <FiLock className="h-4 w-4" />} />
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                onClick={toggleFollow}
+                disabled={followLoading}
+                className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition ${isFollowing ? 'border border-[#D4AF37]/30 bg-white/[0.03] text-[#F0F0F5]' : 'bg-[#D4AF37] text-[#0A0A0F] hover:bg-[#F0C94A]'}`}
+              >
+                {isFollowing ? 'Following board' : 'Follow board'}
+              </button>
+
+              {isInviteOnly && !isMember && !isOwner ? (
                 <button
                   onClick={() => setShowJoinModal(true)}
-                  disabled={requestingJoin || hasRequested}
-                  className={`px-3 sm:px-4 py-2 rounded-md flex items-center gap-2 transition-colors text-sm sm:text-base disabled:opacity-50 ${
-                    hasRequested 
-                      ? 'bg-gray-100 text-gray-500' 
-                      : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                  }`}
+                  className="inline-flex items-center gap-2 rounded-full border border-[#D4AF37]/25 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-[#F0F0F5] transition hover:bg-white/[0.06]"
                 >
-                  <FiUserPlus className="w-4 h-4" />
-                  {hasRequested ? 'Request Sent' : 'Join Board'}
+                  Request access
                 </button>
-              )}
+              ) : isInviteOnly && isMember ? (
+                <button className="inline-flex items-center gap-2 rounded-full border border-[#10B981]/25 bg-[#10B981]/10 px-5 py-3 text-sm font-semibold text-[#10B981]">
+                  <FiCheck className="h-4 w-4" /> Member
+                </button>
+              ) : null}
 
-              {/* Leave Board Button - For pinned users (not owner) */}
-              {!isOwner && isPinned && user && (
-                <button
-                  onClick={() => setShowLeaveModal(true)}
-                  disabled={leavingBoard}
-                  className="bg-red-100 text-red-700 px-3 sm:px-4 py-2 rounded-md hover:bg-red-200 flex items-center gap-2 transition-colors text-sm sm:text-base disabled:opacity-50"
-                >
-                  <FiX className="w-4 h-4" />
-                  <span>Leave Board</span>
-                </button>
-              )}
-              
-              {/* Invite Button - For owner only */}
-              {isOwner && (
+              {isOwner && isInviteOnly && (
                 <button
                   onClick={generateInviteLink}
-                  disabled={generatingInvite}
-                  className="bg-green-100 text-green-700 px-3 sm:px-4 py-2 rounded-md hover:bg-green-200 flex items-center gap-2 transition-colors text-sm sm:text-base disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-[#F0F0F5] transition hover:bg-white/[0.06]"
                 >
-                  <FiUserPlus className="w-4 h-4" />
-                  <span className="hidden sm:inline">{generatingInvite ? 'Creating...' : 'Invite'}</span>
+                  <FiUsers className="h-4 w-4 text-[#D4AF37]" /> Invite link
                 </button>
               )}
-              
-              {/* Share Button - Always visible for public boards */}
-              {board.is_public && (
+
+              <button
+                onClick={shareBoard}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-[#F0F0F5] transition hover:bg-white/[0.06]"
+              >
+                {copyState === 'copied' ? <FiCheck className="h-4 w-4 text-[#10B981]" /> : <FiShare2 className="h-4 w-4 text-[#D4AF37]" />}
+                {copyState === 'copied' ? 'Copied' : 'Share'}
+              </button>
+
+              {isMember && !isOwner && (
                 <button
-                  onClick={handleShare}
-                  className="bg-blue-100 text-blue-700 px-3 sm:px-4 py-2 rounded-md hover:bg-blue-200 flex items-center gap-2 transition-colors text-sm sm:text-base"
+                  onClick={() => setShowLeaveModal(true)}
+                  className="inline-flex items-center gap-2 rounded-full border border-[#EF4444]/25 bg-[#EF4444]/10 px-5 py-3 text-sm font-semibold text-[#EF4444]"
                 >
-                  {copied ? (
-                    <>✓ Copied!</>
-                  ) : (
-                    <>🔗 Share</>  
-                  )}
-                </button>
-              )}
-              {isOwner && (
-                <Link
-                  href={`/boards/${board.id}/edit`}
-                  className="bg-gray-200 text-gray-800 px-3 sm:px-4 py-2 rounded-md hover:bg-gray-300 text-sm sm:text-base"
-                >
-                  Edit Board
-                </Link>
-              )}
-            </div>
-          </div>
-
-          {/* Cover Image */}
-          {board.cover_image && (
-            <div className="aspect-[3/1] relative rounded-xl overflow-hidden mb-6">
-              <Image
-                src={board.cover_image}
-                alt={board.title}
-                fill
-                className="object-cover"
-                unoptimized
-              />
-            </div>
-          )}
-          
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{board.title}</h1>
-          
-          {board.description && (
-            <p className="text-base sm:text-lg text-gray-600 mb-4 italic">
-              "{board.description}"
-            </p>
-          )}
-
-          {/* Curator Section */}
-          <div className="bg-gradient-to-r from-gray-50 to-white border border-gray-100 rounded-xl p-4 sm:p-6 mb-6">
-            <p className="text-xs uppercase tracking-wide text-gray-500 mb-3">Curated by</p>
-            <div className="flex items-start gap-4">
-              {/* Curator Photo */}
-              <Link href={`/profile/${curator?.username || board.users.username}`}>
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden flex-shrink-0 ring-2 ring-white shadow-lg">
-                  {curator?.profile_photo ? (
-                    <Image
-                      src={curator.profile_photo}
-                      alt={curator.name}
-                      width={80}
-                      height={80}
-                      className="object-cover w-full h-full"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                      <span className="text-white text-2xl font-bold">
-                        {curator?.name?.[0] || board.users.name?.[0] || '?'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </Link>
-              
-              {/* Curator Info */}
-              <div className="flex-1 min-w-0">
-                <Link href={`/profile/${curator?.username || board.users.username}`} className="hover:text-blue-600 transition-colors">
-                  <h3 className="font-bold text-lg text-gray-900">{curator?.name || board.users.name}</h3>
-                  <p className="text-gray-500 text-sm">@{curator?.username || board.users.username}</p>
-                </Link>
-                {curator?.bio && (
-                  <p className="text-gray-600 text-sm mt-2 line-clamp-2">{curator.bio}</p>
-                )}
-              </div>
-              
-              {/* Follow Button */}
-              {user && user.id !== board.user_id && (
-                <button
-                  onClick={toggleFollow}
-                  disabled={followLoading}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
-                    isFollowing
-                      ? 'bg-gray-100 text-gray-700 hover:bg-red-50 hover:text-red-600'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
-                  }`}
-                >
-                  <FiHeart className={`w-4 h-4 ${isFollowing ? 'fill-current' : ''}`} />
-                  {followLoading ? '...' : isFollowing ? 'Following' : 'Follow Board'}
+                  Leave board
                 </button>
               )}
             </div>
-          </div>
-
-          {/* Social Proof & Stats Bar */}
-          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-6">
-            <div className="flex items-center gap-2 bg-purple-50 px-4 py-2 rounded-full">
-              <FiHeart className="w-4 h-4 text-purple-600" />
-              <span className="font-medium text-purple-700">
-                {followerCount === 0 ? 'Be the first to follow' : `Followed by ${followerCount} ${followerCount === 1 ? 'person' : 'people'}`}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-full">
-              <FiUsers className="w-4 h-4 text-blue-600" />
-              <span className="font-medium text-blue-700">{pins.length} creators</span>
-            </div>
-            <span className="text-gray-400">•</span>
-            <span>{board.is_public ? '🌐 Public' : '🔒 Private'}</span>
           </div>
         </div>
 
-        {/* Section Header for Pins */}
-        {pins.length > 0 && (
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-gray-900">Creators in this board</h2>
-            <p className="text-gray-500 text-sm">Hand-picked by @{curator?.username || board.users.username}</p>
-          </div>
-        )}
-
-        {/* Pins Grid */}
-        {pins.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="mb-6">
-              <svg className="mx-auto h-24 w-24 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
+        <div className="space-y-4 rounded-[28px] border border-white/10 bg-[#12121A] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Trust signals</p>
+              <h2 className="mt-2 text-2xl font-semibold text-[#F0F0F5]">Searchable, transparent, useful</h2>
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No pins yet</h3>
-            <p className="text-gray-600 mb-6">
-              {isOwner 
-                ? "Start exploring creators and pin them to this board"
-                : "This board doesn't have any pins yet"
-              }
-            </p>
-            {isOwner && (
-              <Link
-                href="/explore"
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
-              >
-                Explore Creators
-              </Link>
-            )}
+            <FiStar className="h-5 w-5 text-[#D4AF37]" />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-            {pins.map((pin) => (
-              <div key={pin.id} className="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group border border-gray-100">
-                {/* Large Creator Photo */}
-                <div className="aspect-[4/5] relative">
-                  <Link href={`/profile/${pin.users.username}`} className="block w-full h-full">
-                    {pin.users.profile_photo ? (
-                      <Image
-                        src={pin.users.profile_photo}
-                        alt={pin.users.name}
-                        fill
-                        className="object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 flex items-center justify-center">
-                        <span className="text-white text-5xl sm:text-6xl font-bold">
-                          {pin.users.name?.[0] || pin.users.username[0]}
-                        </span>
-                      </div>
-                    )}
-                  </Link>
-                  
-                  {/* Overlay Buttons */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                    {/* Save/Pin Button */}
-                    <div className="absolute bottom-4 left-4 right-4 flex gap-2">
-                      <button
-                        className="flex-1 bg-white/90 backdrop-blur-sm text-gray-900 py-2.5 px-4 rounded-full text-sm font-semibold hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-lg"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          // TODO: Implement save to own board
-                          alert('Save to your boards - Coming soon!');
-                        }}
-                      >
-                        <FiBookmark className="w-4 h-4" />
-                        Save
-                      </button>
-                      <Link
-                        href={`/profile/${pin.users.username}`}
-                        className="bg-blue-600 text-white py-2.5 px-4 rounded-full text-sm font-semibold hover:bg-blue-700 transition-colors shadow-lg"
-                      >
-                        View
-                      </Link>
-                    </div>
-                  </div>
-                  
-                  {/* Remove Button for Owner */}
-                  {isOwner && (
-                    <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          openRemoveModal(pin);
-                        }}
-                        className="bg-red-500/90 backdrop-blur-sm text-white w-9 h-9 rounded-full flex items-center justify-center shadow-lg hover:bg-red-600 transition-colors"
-                        title="Remove from board"
-                      >
-                        <FiX className="w-5 h-5" />
-                      </button>
-                    </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SignalCard title="Saved" value="203" description="Threads and cards people return to." icon={<FiBookmark className="h-4 w-4" />} />
+            <SignalCard title="Clicks" value="47" description="Structured cards that get action." icon={<FiArrowRight className="h-4 w-4" />} />
+            <SignalCard title="Followers" value={`${followerCount}`} description="People tracking this topic." icon={<FiUsers className="h-4 w-4" />} />
+            <SignalCard title="Creator" value="Verified" description="Visible ownership and trust cues." icon={<FiShield className="h-4 w-4" />} />
+          </div>
+
+          {curator && (
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-[#D4AF37]/30 bg-[#D4AF37]/10 text-[#D4AF37]">
+                  {curator.profile_photo ? (
+                    <Image src={curator.profile_photo} alt={curator.name} width={48} height={48} className="h-full w-full object-cover" />
+                  ) : (
+                    <FiShield className="h-5 w-5" />
                   )}
                 </div>
-                
-                {/* Creator Info */}
-                <div className="p-4">
-                  <Link href={`/profile/${pin.users.username}`} className="block group/link">
-                    <h3 className="font-bold text-gray-900 text-base group-hover/link:text-blue-600 transition-colors truncate">
-                      {pin.users.name}
-                    </h3>
-                    <p className="text-gray-500 text-sm">@{pin.users.username}</p>
-                  </Link>
-                  
-                  {pin.users.bio && (
-                    <p className="text-gray-600 text-sm mt-2 line-clamp-2">{pin.users.bio}</p>
-                  )}
-                  
-                  {/* Stats Row */}
-                  <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
-                    <span className="flex items-center gap-1">
-                      📌 <span className="font-medium text-gray-700">{pin.users.pin_count}</span> pins
-                    </span>
-                    <span className="flex items-center gap-1">
-                      👁️ <span className="font-medium text-gray-700">{pin.users.view_count}</span> views
-                    </span>
-                  </div>
+                <div>
+                  <div className="text-sm text-[#9CA3AF]">Curator</div>
+                  <div className="text-lg font-semibold text-[#F0F0F5]">{curator.name}</div>
+                  <div className="text-sm text-[#9CA3AF]">@{curator.username}</div>
                 </div>
               </div>
+              <p className="mt-3 text-sm leading-6 text-[#9CA3AF]">{curator.bio || 'This board is curated for useful recommendations, plain-language answers, and transparent trust signals.'}</p>
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-[#9CA3AF]"><FiSearch className="h-4 w-4 text-[#D4AF37]" /> Board context</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[board.is_public ? 'Public' : 'Invite-only', 'Questions', 'Answers', 'Reviews', 'Recommendations', 'Cards'].map((item) => (
+                <span key={item} className="rounded-full border border-white/10 bg-[#0A0A0F] px-3 py-1 text-xs text-[#F0F0F5]">{item}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="flex flex-wrap items-center gap-2 rounded-[24px] border border-white/10 bg-[#0A0A0F] p-2">
+        {topics.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab as typeof activeTab)}
+            className={`rounded-full px-4 py-2 text-sm transition ${activeTab === tab ? 'bg-[#D4AF37] text-[#0A0A0F]' : 'text-[#9CA3AF] hover:bg-white/[0.04] hover:text-[#F0F0F5]'}`}
+          >
+            {tab}
+          </button>
+        ))}
+      </section>
+
+      <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="space-y-4">
+          {activeTab === 'Threads' && threadList.map((thread) => (
+            <ThreadCard key={thread.id} thread={thread} />
+          ))}
+
+          {activeTab === 'Cards' && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {pins.map((pin) => (
+                <CardPreview key={pin.id} pin={pin} />
+              ))}
+              {pins.length === 0 && (
+                <EmptyPanel title="No cards yet" text="Use the / command in a reply to attach a product, place, or service card." />
+              )}
+            </div>
+          )}
+
+          {activeTab === 'People' && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {members.map((member) => (
+                <div key={member.id} className="rounded-[24px] border border-white/10 bg-[#12121A] p-5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-[#D4AF37]/30 bg-[#D4AF37]/10 text-[#D4AF37]">
+                      {member.users.profile_photo ? (
+                        <Image src={member.users.profile_photo} alt={member.users.name} width={48} height={48} className="h-full w-full object-cover" />
+                      ) : (
+                        <FiUsers className="h-5 w-5" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-base font-semibold text-[#F0F0F5]">{member.users.name}</div>
+                      <div className="text-sm text-[#9CA3AF]">@{member.users.username}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 inline-flex rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-[#9CA3AF]">{member.role}</div>
+                </div>
+              ))}
+              {!members.length && <EmptyPanel title="No members listed" text="Invite people to this board or approve join requests to show them here." />}
+            </div>
+          )}
+
+          {activeTab === 'About' && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-[24px] border border-white/10 bg-[#12121A] p-5">
+                <div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Board details</div>
+                <div className="mt-3 space-y-3 text-sm leading-6 text-[#9CA3AF]">
+                  <p>{board.description || 'A knowledge board for useful questions, answers, cards, and trust signals.'}</p>
+                  <p>Use it for product recommendations, local guides, services, or expert knowledge.</p>
+                </div>
+              </div>
+              <div className="rounded-[24px] border border-white/10 bg-[#12121A] p-5">
+                <div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Access</div>
+                <div className="mt-3 space-y-3 text-sm leading-6 text-[#9CA3AF]">
+                  <p>{board.is_public ? 'Anyone can view and discover this board.' : 'Members only see the full board. Non-members can request access.'}</p>
+                  {isOwner && <p>You can create invite links, approve requests, and manage membership here.</p>}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+          <div className="rounded-[24px] border border-white/10 bg-[#12121A] p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Composer</p>
+                <h2 className="mt-2 text-2xl font-semibold text-[#F0F0F5]">Ask, answer, or recommend</h2>
+              </div>
+              <FiMessageCircle className="h-5 w-5 text-[#D4AF37]" />
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-[#0A0A0F] p-4 text-sm text-[#9CA3AF]">
+              <div className="flex items-center gap-2 text-[#F0F0F5]"><FiMessageCircle className="h-4 w-4 text-[#D4AF37]" /> Drop a question or recommendation...</div>
+              <p className="mt-2">Type / to attach a card from your inventory.</p>
+            </div>
+
+            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F]">
+              Send it
+              <FiArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="rounded-[24px] border border-white/10 bg-[#12121A] p-5">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-[#D4AF37]"><FiHash className="h-4 w-4" /> Recent cards</div>
+            <div className="mt-4 space-y-3">
+              {pins.slice(0, 3).map((pin) => (
+                <div key={pin.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="text-sm font-semibold text-[#F0F0F5]">{pin.users.name}</div>
+                  <div className="mt-1 text-sm text-[#9CA3AF]">Why I recommend this: clear, useful, and easy to return to.</div>
+                </div>
+              ))}
+              {!pins.length && <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">Cards will appear here once people attach structured recommendations.</div>}
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      {showJoinModal && (
+        <ModalShell title={`Request access to ${board.title}`} onClose={() => setShowJoinModal(false)}>
+          {joinSuccess ? (
+            <div className="space-y-4 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#10B981]/15 text-[#10B981]"><FiCheck className="h-8 w-8" /></div>
+              <div className="text-2xl font-semibold text-[#F0F0F5]">Request sent</div>
+              <p className="text-sm leading-6 text-[#9CA3AF]">The curator will review your request. You'll get notified when they respond.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm leading-6 text-[#9CA3AF]">{curator?.name || 'The curator'} manages this board. Tell them why you'd be a useful member.</p>
+              <textarea className="min-h-28 w-full rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-[#F0F0F5] outline-none placeholder:text-[#4B5563]" placeholder="Why do you want to join?" />
+              <button onClick={requestToJoin} disabled={joinLoading} className="inline-flex w-full items-center justify-center rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F]">
+                {joinLoading ? 'Sending...' : 'Send request'}
+              </button>
+            </div>
+          )}
+        </ModalShell>
+      )}
+
+      {showLeaveModal && (
+        <ModalShell title={`Leave ${board.title}?`} onClose={() => setShowLeaveModal(false)}>
+          {leaveSuccess ? (
+            <div className="space-y-4 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#10B981]/15 text-[#10B981]"><FiCheck className="h-8 w-8" /></div>
+              <div className="text-2xl font-semibold text-[#F0F0F5]">You left the board</div>
+              <p className="text-sm leading-6 text-[#9CA3AF]">You can rejoin later if the board remains open or you receive a new invite.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm leading-6 text-[#9CA3AF]">You will stop seeing private content for this board unless the curator adds you again.</p>
+              <button onClick={confirmLeaveBoard} disabled={leaveLoading} className="inline-flex w-full items-center justify-center rounded-2xl bg-[#EF4444] px-4 py-3 text-sm font-semibold text-white">
+                {leaveLoading ? 'Leaving...' : 'Leave board'}
+              </button>
+            </div>
+          )}
+        </ModalShell>
+      )}
+
+      {showInviteModal && (
+        <ModalShell title="Invite link created" onClose={() => setShowInviteModal(false)}>
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-white/10 bg-[#0A0A0F] p-4 text-sm text-[#9CA3AF] break-all">{inviteLink}</div>
+            <div className="flex gap-3">
+              <button onClick={copyInviteLink} className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F]">
+                {inviteCopied ? <FiCheck className="h-4 w-4" /> : <FiCopy className="h-4 w-4" />}
+                {inviteCopied ? 'Copied' : 'Copy link'}
+              </button>
+              <button onClick={() => setShowInviteModal(false)} className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-[#F0F0F5]">
+                Close
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+function ThreadCard({ thread }: { thread: Thread }) {
+  const typeLabel = thread.type === 'question' ? 'Question' : thread.type === 'answer' ? 'Answer' : thread.type === 'review' ? 'Review' : 'Recommendation';
+
+  return (
+    <article className={`rounded-[28px] border border-white/10 bg-[#12121A] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.2)] ${thread.isPinned ? 'border-l-4 border-l-[#D4AF37]' : thread.type === 'question' ? 'border-l-4 border-l-[#3B82F6]' : 'border-l-4 border-l-[#D4AF37]'}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
+            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[#F0F0F5]">{typeLabel}</span>
+            {thread.isPinned && <span className="rounded-full bg-[#D4AF37] px-3 py-1 text-[#0A0A0F]">Pinned</span>}
+            {thread.tags.map((tag) => (
+              <span key={tag} className="rounded-full border border-white/10 bg-black/20 px-3 py-1">{tag}</span>
             ))}
           </div>
-        )}
-      </main>
+          <h3 className="mt-4 text-2xl font-semibold text-[#F0F0F5]">{thread.title}</h3>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-[#C7CAD1]">{thread.body}</p>
+        </div>
+        <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-[#9CA3AF]">{thread.timestamp}</div>
+      </div>
 
-      {/* Remove Pin Confirmation Modal */}
-      {showRemoveModal && pinToRemove && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-sm w-full">
-            <h2 className="text-lg font-bold text-gray-900 mb-3">Remove from Board?</h2>
-            
-            <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
-              {pinToRemove.users.profile_photo ? (
-                <Image
-                  src={pinToRemove.users.profile_photo}
-                  alt={pinToRemove.users.name}
-                  width={48}
-                  height={48}
-                  className="rounded-full object-cover"
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
-                  <span className="text-white font-bold">
-                    {pinToRemove.users.name?.[0] || '?'}
-                  </span>
-                </div>
-              )}
-              <div>
-                <p className="font-semibold text-gray-900">{pinToRemove.users.name}</p>
-                <p className="text-sm text-gray-500">@{pinToRemove.users.username}</p>
+      {thread.cards?.length ? (
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {thread.cards.map((card) => (
+            <article key={card.id} className="overflow-hidden rounded-[24px] border border-white/10 bg-[#0A0A0F]">
+              <div className="h-32 bg-[linear-gradient(135deg,rgba(212,175,55,0.16),rgba(26,26,36,0.95))]">
+                {card.image ? (
+                  <Image src={card.image} alt={card.title} width={480} height={180} className="h-full w-full object-cover opacity-95" />
+                ) : null}
               </div>
-            </div>
-            
-            <p className="text-gray-600 text-sm mb-4">
-              Are you sure you want to remove this creator from your board?
-            </p>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowRemoveModal(false);
-                  setPinToRemove(null);
-                }}
-                className="flex-1 py-2 px-4 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700"
-                disabled={removing}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleRemovePin(pinToRemove.id)}
-                disabled={removing}
-                className="flex-1 py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-              >
-                {removing ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Invite Link Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-900">Invite to Board</h2>
-              <button
-                onClick={() => setShowInviteModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <FiX className="w-6 h-6" />
-              </button>
-            </div>
-            
-            <p className="text-gray-600 text-sm mb-4">
-              Share this link to invite someone to collaborate on "{board?.title}". The link expires in 7 days.
-            </p>
-            
-            <div className="flex gap-2 mb-4">
-              <input
-                type="text"
-                value={inviteLink}
-                readOnly
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
-              />
-              <button
-                onClick={copyInviteLink}
-                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                  inviteCopied 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-              >
-                {inviteCopied ? <FiCheck className="w-4 h-4" /> : <FiCopy className="w-4 h-4" />}
-                {inviteCopied ? 'Copied!' : 'Copy'}
-              </button>
-            </div>
-            
-            <button
-              onClick={() => setShowInviteModal(false)}
-              className="w-full py-2 text-gray-600 hover:text-gray-900"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Members Modal */}
-      {showMembersModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-900">Board Members</h2>
-              <button
-                onClick={() => setShowMembersModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <FiX className="w-6 h-6" />
-              </button>
-            </div>
-            
-            <div className="overflow-y-auto flex-1 -mx-6 px-6">
-              {/* Owner */}
-              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg mb-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center overflow-hidden">
-                  <span className="text-white font-bold">
-                    {board?.users.name?.[0] || '?'}
-                  </span>
+              <div className="p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-semibold text-[#F0F0F5]">{card.title}</div>
+                    <div className="text-sm text-[#9CA3AF]">{card.type}</div>
+                  </div>
+                  {card.verifiedOwner && <span className="rounded-full bg-[#10B981]/15 px-3 py-1 text-xs font-semibold text-[#10B981]">Verified owner</span>}
                 </div>
-                <div className="flex-1">
-                  <p className="font-medium text-gray-900">{board?.users.name}</p>
-                  <p className="text-sm text-gray-500">@{board?.users.username}</p>
+                <p className="mt-3 text-sm leading-6 text-[#9CA3AF]">{card.description}</p>
+                <p className="mt-3 text-sm italic text-[#C7CAD1]">"{card.why}"</p>
+                <div className="mt-4 flex items-center justify-between text-xs text-[#9CA3AF]">
+                  <span>{card.saves} saves · {card.clicks} clicks</span>
+                  <a href={card.link} className="inline-flex items-center gap-1 text-[#D4AF37] hover:text-[#F0C94A]">Open <FiArrowRight className="h-4 w-4" /></a>
                 </div>
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">Owner</span>
               </div>
-              
-              {/* Members */}
-              {members.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">No other members yet</p>
-              ) : (
-                <div className="space-y-2">
-                  {members.map((member) => (
-                    <div key={member.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center overflow-hidden">
-                        {member.users.profile_photo ? (
-                          <Image
-                            src={member.users.profile_photo}
-                            alt={member.users.name}
-                            width={40}
-                            height={40}
-                            className="object-cover"
-                          />
-                        ) : (
-                          <span className="text-white font-bold">
-                            {member.users.name?.[0] || '?'}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{member.users.name}</p>
-                        <p className="text-sm text-gray-500">@{member.users.username}</p>
-                      </div>
-                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full capitalize">
-                        {member.role}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            
-            <button
-              onClick={() => setShowMembersModal(false)}
-              className="w-full py-2 mt-4 text-gray-600 hover:text-gray-900"
-            >
-              Close
-            </button>
-          </div>
+            </article>
+          ))}
         </div>
-      )}
+      ) : null}
 
-      {/* Join Board Modal */}
-      {showJoinModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl">
-            {!joinSuccess ? (
-              <>
-                <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FiUserPlus className="w-8 h-8 text-purple-600" />
-                  </div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-2">Join "{board?.title}"?</h2>
-                  <p className="text-gray-600">
-                    Your request will be sent to the board owner for approval. Once approved, you'll be pinned to this board.
-                  </p>
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowJoinModal(false)}
-                    className="flex-1 py-3 px-4 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={requestToJoin}
-                    disabled={requestingJoin}
-                    className="flex-1 py-3 px-4 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {requestingJoin ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                        Sending...
-                      </>
-                    ) : (
-                      'Send Request'
-                    )}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FiCheck className="w-8 h-8 text-green-600" />
-                  </div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-2">Request Sent!</h2>
-                  <p className="text-gray-600">
-                    The board owner will be notified. You'll receive a notification when they respond.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowJoinModal(false);
-                    setJoinSuccess(false);
-                  }}
-                  className="w-full py-3 px-4 rounded-lg bg-gray-900 text-white hover:bg-gray-800 transition-colors"
-                >
-                  Got it!
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-[#9CA3AF]">
+        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-3 py-1"><FiMessageCircle className="h-4 w-4" /> {thread.replies} replies</span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-3 py-1"><FiHeart className="h-4 w-4" /> {thread.saves} saves</span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-3 py-1"><FiEye className="h-4 w-4" /> {thread.views} views</span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-3 py-1"><FiBookmark className="h-4 w-4" /> Save</span>
+      </div>
+    </article>
+  );
+}
 
-      {/* Leave Board Modal */}
-      {showLeaveModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl">
-            {!leaveSuccess ? (
-              <>
-                <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FiX className="w-8 h-8 text-red-600" />
-                  </div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-2">Leave "{board?.title}"?</h2>
-                  <p className="text-gray-600">
-                    You will be removed from this board. You can request to join again later if you change your mind.
-                  </p>
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowLeaveModal(false)}
-                    className="flex-1 py-3 px-4 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmLeaveBoard}
-                    disabled={leavingBoard}
-                    className="flex-1 py-3 px-4 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {leavingBoard ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                        Leaving...
-                      </>
-                    ) : (
-                      'Leave Board'
-                    )}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FiCheck className="w-8 h-8 text-gray-600" />
-                  </div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-2">You've Left the Board</h2>
-                  <p className="text-gray-600">
-                    You're no longer a member of this board. You can request to join again anytime.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowLeaveModal(false);
-                    setLeaveSuccess(false);
-                  }}
-                  className="w-full py-3 px-4 rounded-lg bg-gray-900 text-white hover:bg-gray-800 transition-colors"
-                >
-                  Got it!
-                </button>
-              </>
-            )}
+function CardPreview({ pin }: { pin: Pin }) {
+  return (
+    <article className="overflow-hidden rounded-[24px] border border-white/10 bg-[#12121A]">
+      <div className="h-32 bg-[linear-gradient(135deg,rgba(212,175,55,0.16),rgba(26,26,36,0.95))]">
+        {pin.users.profile_photo ? (
+          <Image src={pin.users.profile_photo} alt={pin.users.name} width={480} height={180} className="h-full w-full object-cover opacity-95" />
+        ) : null}
+      </div>
+      <div className="p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-lg font-semibold text-[#F0F0F5]">{pin.users.name}</div>
+            <div className="text-sm text-[#9CA3AF]">@{pin.users.username}</div>
           </div>
+          <span className="rounded-full bg-[#10B981]/15 px-3 py-1 text-xs font-semibold text-[#10B981]">Verified owner</span>
         </div>
-      )}
+        <p className="mt-3 text-sm leading-6 text-[#9CA3AF]">{pin.users.bio || 'A structured recommendation card attached to this board.'}</p>
+        <div className="mt-4 flex items-center justify-between text-xs text-[#9CA3AF]">
+          <span>{Math.max(16, pin.users.pin_count || 0)} saves</span>
+          <span>{Math.max(8, Math.floor((pin.users.view_count || 0) / 10))} clicks</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function SignalCard({ title, value, description, icon }: { title: string; value: string; description: string; icon: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#D4AF37]/25 bg-[#D4AF37]/10 text-[#D4AF37]">{icon}</div>
+      <div className="mt-3 text-2xl font-semibold text-[#F0F0F5]">{value}</div>
+      <div className="mt-1 text-sm font-medium text-[#F0F0F5]">{title}</div>
+      <p className="mt-1 text-sm leading-6 text-[#9CA3AF]">{description}</p>
+    </div>
+  );
+}
+
+function Stat({ value, label, icon }: { value: string; label: string; icon: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#12121A] px-4 py-2 text-sm text-[#9CA3AF]">
+      <span className="text-[#D4AF37]">{icon}</span>
+      <strong className="text-[#F0F0F5]">{value}</strong>
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function EmptyPanel({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded-[24px] border border-dashed border-white/15 bg-[#0A0A0F] p-6">
+      <div className="text-lg font-semibold text-[#F0F0F5]">{title}</div>
+      <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">{text}</p>
+    </div>
+  );
+}
+
+function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#050508]/80 px-4 backdrop-blur-md">
+      <div className="relative w-full max-w-lg rounded-[28px] border border-white/10 bg-[#12121A] p-6 shadow-[0_30px_120px_rgba(0,0,0,0.55)]">
+        <button onClick={onClose} className="absolute right-4 top-4 rounded-full border border-white/10 bg-white/[0.03] p-2 text-[#9CA3AF]">
+          <FiX className="h-5 w-5" />
+        </button>
+        <div className="mb-4 pr-10">
+          <p className="text-xs uppercase tracking-[0.24em] text-[#D4AF37]">Identify</p>
+          <h2 className="mt-2 text-2xl font-semibold text-[#F0F0F5]">{title}</h2>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }

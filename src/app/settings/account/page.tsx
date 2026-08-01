@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
@@ -17,20 +17,16 @@ export default function AccountSettingsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
-  
+
   useEffect(() => {
     async function loadUserData() {
       setLoading(true);
-      
       try {
-        // Check if user is authenticated
         const { data: { user } } = await supabase.auth.getUser();
-        
         if (!user) {
           router.push('/auth/login');
           return;
         }
-        
         setUser(user);
         setEmail(user.email || '');
       } catch (err: any) {
@@ -39,52 +35,41 @@ export default function AccountSettingsPage() {
         setLoading(false);
       }
     }
-    
+
     loadUserData();
   }, [router]);
-  
-  const handlePasswordChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+
+  const handlePasswordChange = async (event: React.FormEvent) => {
+    event.preventDefault();
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
-    
     if (newPassword.length < 6) {
       setError('Password must be at least 6 characters');
       return;
     }
-    
+
     setProcessing(true);
     setError(null);
     setSuccess(null);
-    
+
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
-      
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
-      
       setSuccess('Password updated successfully');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err: any) {
       setError(err.message);
-      console.error('Error updating password:', err);
     } finally {
       setProcessing(false);
     }
   };
-  
+
   const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      router.push('/auth/login');
-    } catch (err) {
-      console.error('Error signing out:', err);
-    }
+    await supabase.auth.signOut();
+    router.push('/auth/login');
   };
 
   const handleDeleteAccount = async () => {
@@ -92,214 +77,107 @@ export default function AccountSettingsPage() {
       setError('Please type DELETE to confirm');
       return;
     }
-    
+
     setDeleting(true);
     setError(null);
-    
+
     try {
-      // Get current session token
       const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        throw new Error('No active session');
-      }
-      
-      // Call the delete API
+      if (!session) throw new Error('No active session');
+
       const response = await fetch('/api/account/delete', {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
       });
-      
+
       const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to delete account');
-      }
-      
-      // Sign out completely
+      if (!response.ok) throw new Error(data.error || 'Failed to delete account');
+
       await supabase.auth.signOut({ scope: 'global' });
-      
-      // Clear any local storage
       localStorage.clear();
       sessionStorage.clear();
-      
-      // Force a full page redirect to clear all state
       window.location.href = '/auth/login?deleted=true';
-      
     } catch (err: any) {
-      console.error('Error deleting account:', err);
       setError(err.message || 'Failed to delete account');
       setDeleting(false);
     }
   };
 
   if (loading) {
-    return (
-      <div className="max-w-full">
-        <h1 className="text-xl sm:text-2xl font-bold mb-6">Loading...</h1>
-      </div>
-    );
+    return <div className="mx-auto max-w-5xl px-4 py-10 text-[#9CA3AF]">Loading...</div>;
   }
-  
+
   return (
-    <div className="max-w-full">
-      <h1 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Account Settings</h1>
-      
-      {error && (
-        <div className="bg-red-50 text-red-600 p-3 sm:p-4 rounded-lg mb-4 sm:mb-6 text-sm sm:text-base">
-          {error}
-        </div>
-      )}
-      
-      {success && (
-        <div className="bg-green-50 text-green-600 p-3 sm:p-4 rounded-lg mb-4 sm:mb-6 text-sm sm:text-base">
-          {success}
-        </div>
-      )}
-      
-      <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8">
-        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Email Address</h2>
-        <p className="text-gray-800 mb-2 text-sm sm:text-base break-all">{email}</p>
-        <p className="text-xs sm:text-sm text-gray-600">
-          Your email address is used for logging in and account recovery.
-        </p>
-      </div>
-      
-      <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8">
-        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Change Password</h2>
-        <form onSubmit={handlePasswordChange} className="space-y-4">
-          <div>
-            <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-1">
-              New Password
-            </label>
-            <input
-              type="password"
-              id="new-password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full p-2 border rounded text-sm sm:text-base"
-              required
-            />
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="rounded-[32px] border border-white/10 bg-[#12121A] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.28)]">
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#D4AF37]/20 bg-[#D4AF37]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#D4AF37]">Account settings</div>
+        <h1 className="mt-3 text-4xl font-semibold tracking-tight text-[#F0F0F5]">Security and account controls</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-7 text-[#9CA3AF]">Update your password, review the email tied to your vault, or sign out and delete your account from the same dark control surface.</p>
+
+        {error && <div className="mt-6 rounded-2xl border border-[#EF4444]/25 bg-[#EF4444]/10 p-4 text-sm text-[#FCA5A5]">{error}</div>}
+        {success && <div className="mt-6 rounded-2xl border border-[#10B981]/25 bg-[#10B981]/10 p-4 text-sm text-[#A7F3D0]">{success}</div>}
+
+        <div className="mt-8 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-[28px] border border-white/10 bg-black/20 p-5">
+            <p className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Email</p>
+            <div className="mt-3 rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-sm text-[#F0F0F5] break-all">{email}</div>
+            <p className="mt-3 text-sm leading-6 text-[#9CA3AF]">This address is used for login and account recovery.</p>
           </div>
-          
-          <div>
-            <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
-              Confirm New Password
-            </label>
-            <input
-              type="password"
-              id="confirm-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full p-2 border rounded text-sm sm:text-base"
-              required
-            />
-          </div>
-          
-          <button
-            type="submit"
-            disabled={processing}
-            className="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 disabled:opacity-50 text-sm sm:text-base"
-          >
-            {processing ? 'Updating...' : 'Update Password'}
-          </button>
-        </form>
-      </div>
-      
-      <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md">
-        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-red-600">Danger Zone</h2>
-        
-        <div className="space-y-4">
-          <div>
-            <h3 className="font-medium mb-2 text-sm sm:text-base">Sign Out</h3>
-            <p className="text-xs sm:text-sm text-gray-600 mb-3">
-              Sign out from your account on this device.
-            </p>
-            <button
-              onClick={handleLogout}
-              className="bg-gray-200 text-gray-800 py-2 px-4 rounded hover:bg-gray-300"
-            >
-              Sign Out
+
+          <form onSubmit={handlePasswordChange} className="rounded-[28px] border border-white/10 bg-black/20 p-5 space-y-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Change password</p>
+            <Field label="New password" type="password" value={newPassword} onChange={setNewPassword} />
+            <Field label="Confirm password" type="password" value={confirmPassword} onChange={setConfirmPassword} />
+            <button disabled={processing} className="inline-flex w-full items-center justify-center rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F] disabled:opacity-60">
+              {processing ? 'Updating...' : 'Update password'}
             </button>
-          </div>
-          
-          <div className="pt-4 border-t border-gray-200">
-            <h3 className="font-medium mb-2 text-red-600">Delete Account</h3>
-            <p className="text-sm text-gray-600 mb-3">
-              Permanently delete your account and all your data. This action cannot be undone.
-            </p>
-            <button
-              onClick={() => setShowDeleteModal(true)}
-              className="bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
-            >
-              Delete Account
-            </button>
-          </div>
+          </form>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <ActionCard title="Sign out" description="Sign out from this device." actionLabel="Sign out" onClick={handleLogout} />
+          <ActionCard title="Delete account" description="Permanently delete your account and all your data." actionLabel="Delete account" destructive onClick={() => setShowDeleteModal(true)} />
         </div>
       </div>
 
-      {/* Delete Account Confirmation Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
-          <div className="bg-white rounded-xl p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg sm:text-xl font-bold text-red-600 mb-3 sm:mb-4">⚠️ Delete Account</h2>
-            
-            <div className="space-y-3 sm:space-y-4">
-              <p className="text-sm sm:text-base text-gray-700">
-                This will permanently delete your account including:
-              </p>
-              
-              <ul className="text-xs sm:text-sm text-gray-600 list-disc list-inside space-y-1">
-                <li>Your profile and all personal data</li>
-                <li>All your boards and pins</li>
-                <li>All your links</li>
-                <li>Your authentication credentials</li>
-              </ul>
-              
-              <p className="text-red-600 font-medium text-xs sm:text-sm">
-                This action cannot be undone!
-              </p>
-              
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                  Type <span className="font-bold">DELETE</span> to confirm:
-                </label>
-                <input
-                  type="text"
-                  value={deleteConfirmText}
-                  onChange={(e) => setDeleteConfirmText(e.target.value)}
-                  className="w-full p-2 border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm sm:text-base"
-                  placeholder="DELETE"
-                />
-              </div>
-              
-              <div className="flex gap-2 sm:gap-3 pt-2">
-                <button
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setDeleteConfirmText('');
-                    setError(null);
-                  }}
-                  className="flex-1 py-2 px-3 sm:px-4 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm sm:text-base"
-                  disabled={deleting}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDeleteAccount}
-                  disabled={deleteConfirmText !== 'DELETE' || deleting}
-                  className="flex-1 py-2 px-3 sm:px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
-                >
-                  {deleting ? 'Deleting...' : 'Delete Forever'}
-                </button>
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#12121A] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.45)]">
+            <h2 className="text-2xl font-semibold text-[#F0F0F5]">Delete account</h2>
+            <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">Type DELETE to permanently remove the account, boards, and associated data.</p>
+
+            <input value={deleteConfirmText} onChange={(event) => setDeleteConfirmText(event.target.value)} className="mt-4 w-full rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-[#F0F0F5] outline-none placeholder:text-[#4B5563]" placeholder="Type DELETE" />
+            <div className="mt-5 flex gap-3">
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-[#F0F0F5]">Cancel</button>
+              <button disabled={deleting} onClick={handleDeleteAccount} className="flex-1 rounded-2xl bg-[#EF4444] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60">{deleting ? 'Deleting...' : 'Delete'}</button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Field({ label, type, value, onChange }: { label: string; type: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <div>
+      <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-[#9CA3AF]">{label}</label>
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-[#F0F0F5] outline-none" />
+    </div>
+  );
+}
+
+function ActionCard({ title, description, actionLabel, onClick, destructive = false }: { title: string; description: string; actionLabel: string; destructive?: boolean; onClick: () => void }) {
+  return (
+    <div className="rounded-[28px] border border-white/10 bg-black/20 p-5">
+      <div className="text-lg font-semibold text-[#F0F0F5]">{title}</div>
+      <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">{description}</p>
+      <button onClick={onClick} className={`mt-4 rounded-2xl px-4 py-3 text-sm font-semibold ${destructive ? 'bg-[#EF4444] text-white' : 'bg-white/[0.04] text-[#F0F0F5] border border-white/10'}`}>
+        {actionLabel}
+      </button>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 
 # Identify
 
-A "Pinterest for People" platform. Every user is both a creator and a fan.
+A knowledge-first platform for boards, posts, cards, search, and trust.
 
 ## Tech Stack
 - Frontend: Next.js (React, TypeScript), TailwindCSS, shadcn/ui
@@ -10,12 +10,18 @@ A "Pinterest for People" platform. Every user is both a creator and a fan.
 - Hosting: Vercel
 
 ## Features
-- Authentication & Onboarding
-- Profile Creation & Public Profile Page
-- Boards & Pinning
-- Home Page (Personalized Feed)
-- Explore Page
-- Analytics (Basic)
+- Authentication & onboarding
+- Profile pages with boards, saved items, and inventory
+- Boards with public or invite-only access
+- Posts, replies, and structured recommendation cards
+- Search by topic, board, person, or card type
+- Trust signals, simple analytics, and moderation basics
+
+## Product Direction
+- No feed.
+- No algorithmic ranking.
+- No video requirement.
+- Just boards, posts, cards, search, and transparent trust signals.
 
 ## Getting Started
 1. Install dependencies: `npm install`
@@ -23,5 +29,5 @@ A "Pinterest for People" platform. Every user is both a creator and a fan.
 3. Run the development server: `npm run dev`
 
 ## Progress
-- Project scaffolded and UI initialized.
-- Supabase integration and features coming next.
+- Core product pivoted toward boards, posts, cards, and search.
+- UI and docs are being aligned with the new strategy.

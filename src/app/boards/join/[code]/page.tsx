@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, use } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { useRouter } from 'next/navigation';
+import { use, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { FiGrid, FiUser, FiCheck, FiX } from 'react-icons/fi';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+import { FiCheck, FiClock, FiGlobe, FiLock, FiShield, FiUsers, FiX } from 'react-icons/fi';
 
-interface BoardInvite {
+type BoardInvite = {
   id: string;
   board: {
     id: string;
@@ -21,28 +21,27 @@ interface BoardInvite {
     };
   };
   expires_at: string;
-}
+};
 
 export default function JoinBoardPage({ params }: { params: Promise<{ code: string }> }) {
-  const router = useRouter();
   const resolvedParams = use(params);
+  const router = useRouter();
   const { code } = resolvedParams;
-  
+
   const [invite, setInvite] = useState<BoardInvite | null>(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
+  const [requestPending, setRequestPending] = useState(false);
+  const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
-  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     async function loadInvite() {
       try {
-        // Check auth
         const { data: { user } } = await supabase.auth.getUser();
         setUser(user);
 
-        // Fetch invite details
         const response = await fetch(`/api/boards/invite?code=${code}`);
         const data = await response.json();
 
@@ -51,7 +50,7 @@ export default function JoinBoardPage({ params }: { params: Promise<{ code: stri
         } else {
           setInvite(data.invite);
         }
-      } catch (err) {
+      } catch {
         setError('Failed to load invite');
       } finally {
         setLoading(false);
@@ -61,51 +60,33 @@ export default function JoinBoardPage({ params }: { params: Promise<{ code: stri
     loadInvite();
   }, [code]);
 
-  const [requestPending, setRequestPending] = useState(false);
-
   const handleJoin = async () => {
     if (!user) {
-      // Redirect to login with return URL
       router.push(`/auth/login?redirect=/boards/join/${code}`);
       return;
     }
-
-    console.log('Submitting join request:', { code, userId: user.id });
 
     setJoining(true);
     try {
       const response = await fetch('/api/boards/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'accept_invite',
-          inviteCode: code,
-          userId: user.id
-        })
+        body: JSON.stringify({ action: 'accept_invite', inviteCode: code, userId: user.id }),
       });
 
       const data = await response.json();
-      
-      console.log('API Response:', data);
 
       if (data.success) {
         if (data.pending) {
-          // Request sent, waiting for approval
-          console.log('Request is pending, showing pending UI');
           setRequestPending(true);
         } else {
-          // Already a member or owner, redirect directly
-          console.log('Not pending, redirecting. Message:', data.message);
           setSuccess(true);
-          setTimeout(() => {
-            router.push(`/boards/${data.boardId}`);
-          }, 2000);
+          setTimeout(() => router.push(`/boards/${data.boardId}`), 1600);
         }
       } else {
-        console.log('Request failed:', data.error);
         setError(data.error || 'Failed to join board');
       }
-    } catch (err) {
+    } catch {
       setError('Something went wrong');
     } finally {
       setJoining(false);
@@ -113,139 +94,137 @@ export default function JoinBoardPage({ params }: { params: Promise<{ code: stri
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
+    return <CenterShell><Loader /></CenterShell>;
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white rounded-xl p-8 max-w-md w-full text-center shadow-lg">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <FiX className="w-8 h-8 text-red-500" />
-          </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Invalid Invite</h1>
-          <p className="text-gray-600 mb-6">{error}</p>
-          <Link
-            href="/explore"
-            className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Explore Boards
-          </Link>
-        </div>
-      </div>
+      <CenterShell>
+        <InviteCard>
+          <StatusIcon tone="error"><FiX className="h-8 w-8" /></StatusIcon>
+          <h1 className="mt-4 text-2xl font-semibold text-[#F0F0F5]">Invalid invite</h1>
+          <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">{error}</p>
+          <Link href="/explore" className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F]">Explore boards</Link>
+        </InviteCard>
+      </CenterShell>
     );
   }
 
   if (requestPending) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white rounded-xl p-8 max-w-md w-full text-center shadow-lg">
-          <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Request Sent!</h1>
-          <p className="text-gray-600 mb-4">Your request to join "{invite?.board.title}" has been sent to the board owner.</p>
-          <p className="text-sm text-gray-500 mb-6">You'll be notified when they respond.</p>
-          <Link
-            href="/explore"
-            className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Continue Exploring
-          </Link>
-        </div>
-      </div>
+      <CenterShell>
+        <InviteCard>
+          <StatusIcon tone="pending"><FiClock className="h-8 w-8" /></StatusIcon>
+          <h1 className="mt-4 text-2xl font-semibold text-[#F0F0F5]">Request sent</h1>
+          <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">Your request to join {invite?.board.title} is waiting for the curator to approve it.</p>
+          <p className="mt-2 text-xs uppercase tracking-[0.22em] text-[#D4AF37]">You’ll be notified when they respond</p>
+          <Link href="/explore" className="mt-6 inline-flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-[#F0F0F5]">Continue exploring</Link>
+        </InviteCard>
+      </CenterShell>
     );
   }
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white rounded-xl p-8 max-w-md w-full text-center shadow-lg">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <FiCheck className="w-8 h-8 text-green-500" />
-          </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-2">You're In!</h1>
-          <p className="text-gray-600 mb-4">Successfully joined the board</p>
-          <p className="text-sm text-gray-500">Redirecting...</p>
-        </div>
-      </div>
+      <CenterShell>
+        <InviteCard>
+          <StatusIcon tone="success"><FiCheck className="h-8 w-8" /></StatusIcon>
+          <h1 className="mt-4 text-2xl font-semibold text-[#F0F0F5]">You’re in</h1>
+          <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">You joined {invite?.board.title}. Redirecting to the board now.</p>
+        </InviteCard>
+      </CenterShell>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="bg-white rounded-xl p-8 max-w-md w-full shadow-lg">
-        {/* Board Preview */}
-        <div className="text-center mb-6">
-          <div className="w-20 h-20 bg-gradient-to-br from-blue-400 to-purple-500 rounded-xl flex items-center justify-center mx-auto mb-4 overflow-hidden">
-            {invite?.board.cover_image ? (
-              <Image
-                src={invite.board.cover_image}
-                alt={invite.board.title}
-                width={80}
-                height={80}
-                className="object-cover"
-              />
-            ) : (
-              <FiGrid className="w-10 h-10 text-white" />
-            )}
-          </div>
-          <h1 className="text-xl font-bold text-gray-900 mb-1">You're invited to join</h1>
-          <h2 className="text-2xl font-bold text-blue-600 mb-2">"{invite?.board.title}"</h2>
-          {invite?.board.description && (
-            <p className="text-gray-600 text-sm">{invite.board.description}</p>
-          )}
-        </div>
-
-        {/* Inviter Info */}
-        <div className="flex items-center justify-center gap-3 mb-8 p-4 bg-gray-50 rounded-lg">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center overflow-hidden">
-            {invite?.board.user.profile_photo ? (
-              <Image
-                src={invite.board.user.profile_photo}
-                alt={invite.board.user.name}
-                width={40}
-                height={40}
-                className="object-cover"
-              />
-            ) : (
-              <FiUser className="w-5 h-5 text-white" />
-            )}
-          </div>
+    <CenterShell>
+      <InviteCard wide>
+        <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
           <div>
-            <p className="text-sm text-gray-500">Invited by</p>
-            <p className="font-medium text-gray-900">{invite?.board.user.name}</p>
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-[#D4AF37]"><FiLock className="h-4 w-4" /> Board invite</div>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[#F0F0F5]">{invite?.board.title}</h1>
+            <p className="mt-3 text-sm leading-7 text-[#9CA3AF]">{invite?.board.description || 'A private board for useful posts, cards, and trust signals.'}</p>
+
+            <div className="mt-5 flex flex-wrap gap-2 text-xs text-[#9CA3AF]">
+              <Pill icon={<FiGlobe className="h-4 w-4" />}>Invite-only access</Pill>
+              <Pill icon={<FiUsers className="h-4 w-4" />}>Join requests reviewed by the curator</Pill>
+              <Pill icon={<FiShield className="h-4 w-4" />}>Trust signals visible on the board</Pill>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Invited by</div>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 text-[#D4AF37]">
+                  {invite?.board.user.profile_photo ? (
+                    <Image src={invite.board.user.profile_photo} alt={invite.board.user.name} width={48} height={48} className="h-full w-full object-cover" />
+                  ) : (
+                    <FiUsers className="h-5 w-5" />
+                  )}
+                </div>
+                <div>
+                  <div className="font-semibold text-[#F0F0F5]">{invite?.board.user.name}</div>
+                  <div className="text-sm text-[#9CA3AF]">@{invite?.board.user.username}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button onClick={handleJoin} disabled={joining} className="inline-flex flex-1 items-center justify-center rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F]">
+                {joining ? 'Joining...' : user ? 'Join board' : 'Sign in to join'}
+              </button>
+              <Link href="/explore" className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-[#F0F0F5]">Maybe later</Link>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-[24px] border border-white/10 bg-[#0A0A0F]">
+            <div className="h-52 bg-[linear-gradient(135deg,rgba(212,175,55,0.18),rgba(26,26,36,0.95))]">
+              {invite?.board.cover_image ? (
+                <Image src={invite.board.cover_image} alt={invite.board.title} width={900} height={420} className="h-full w-full object-cover opacity-90" />
+              ) : null}
+            </div>
+            <div className="space-y-4 p-5">
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-[#9CA3AF]">Preview</div>
+                <div className="mt-2 text-xl font-semibold text-[#F0F0F5]">What you’ll find inside</div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InfoTile title="Threads" text="Questions, answers, and recommendations." />
+                <InfoTile title="Cards" text="Structured items with reasons and links." />
+                <InfoTile title="Members" text="Visible people and contributors." />
+                <InfoTile title="Trust" text="Saved, viewed, and verified signals." />
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-[#9CA3AF]">
+                Invite expires on {new Date(invite?.expires_at || '').toLocaleDateString()}.
+              </div>
+            </div>
           </div>
         </div>
-
-        {/* Actions */}
-        <div className="space-y-3">
-          <button
-            onClick={handleJoin}
-            disabled={joining}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium"
-          >
-            {joining ? 'Joining...' : user ? 'Join Board' : 'Sign in to Join'}
-          </button>
-          <Link
-            href="/explore"
-            className="block w-full text-center py-3 text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Maybe later
-          </Link>
-        </div>
-
-        {/* Expiry Notice */}
-        <p className="text-xs text-gray-400 text-center mt-6">
-          This invite expires on {new Date(invite?.expires_at || '').toLocaleDateString()}
-        </p>
-      </div>
-    </div>
+      </InviteCard>
+    </CenterShell>
   );
+}
+
+function CenterShell({ children }: { children: React.ReactNode }) {
+  return <div className="min-h-[calc(100vh-4rem)] px-4 py-8 sm:px-6 lg:px-8"><div className="mx-auto flex min-h-[calc(100vh-6rem)] max-w-6xl items-center justify-center">{children}</div></div>;
+}
+
+function InviteCard({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
+  return <div className={`w-full rounded-[28px] border border-white/10 bg-[#12121A] p-6 shadow-[0_30px_120px_rgba(0,0,0,0.45)] ${wide ? 'max-w-none' : 'max-w-2xl'}`}>{children}</div>;
+}
+
+function StatusIcon({ tone, children }: { tone: 'success' | 'pending' | 'error'; children: React.ReactNode }) {
+  const toneClass = tone === 'success' ? 'bg-[#10B981]/15 text-[#10B981]' : tone === 'pending' ? 'bg-[#D4AF37]/15 text-[#D4AF37]' : 'bg-[#EF4444]/15 text-[#EF4444]';
+  return <div className={`flex h-16 w-16 items-center justify-center rounded-full ${toneClass}`}>{children}</div>;
+}
+
+function Pill({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5">{icon}{children}</span>;
+}
+
+function InfoTile({ title, text }: { title: string; text: string }) {
+  return <div className="rounded-2xl border border-white/10 bg-[#12121A] p-4"><div className="text-sm font-semibold text-[#F0F0F5]">{title}</div><p className="mt-2 text-sm leading-6 text-[#9CA3AF]">{text}</p></div>;
+}
+
+function Loader() {
+  return <div className="h-14 w-14 animate-spin rounded-full border-2 border-[#D4AF37] border-t-transparent" />;
 }
