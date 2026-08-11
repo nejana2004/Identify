@@ -25,7 +25,7 @@ const templates = [
 export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [selectedRole, setSelectedRole] = useState('all');
   const [selectedTopics, setSelectedTopics] = useState<string[]>(['DevOps & Cloud', 'Productivity', 'Software Engineering']);
   const [selectedTemplate, setSelectedTemplate] = useState(templates[0]);
@@ -72,11 +72,14 @@ export default function OnboardingPage() {
     setError('');
 
     try {
+      if (!username.trim()) { setError('Username is required'); setLoading(false); return; }
+      if (!name.trim()) { setError('Name is required'); setLoading(false); return; }
+
       const { error: saveError } = await saveOnboarding({
         userId: user.id,
-        username,
-        name,
-        bio,
+        username: username.trim(),
+        name: name.trim(),
+        bio: bio.trim(),
         country: 'Other',
         tagsCreated: selectedTopics,
         tagsLiked: [selectedRole, selectedTemplate],
@@ -84,11 +87,9 @@ export default function OnboardingPage() {
 
       if (saveError) throw saveError;
 
-      await supabase.from('users').update({ onboarded_at: new Date().toISOString() }).eq('id', user.id);
-
       router.push('/discover');
-    } catch (submissionError: any) {
-      setError(submissionError.message || 'Failed to save onboarding');
+    } catch (submissionError: unknown) {
+      setError(submissionError instanceof Error ? submissionError.message : 'Failed to save onboarding');
     } finally {
       setLoading(false);
     }
