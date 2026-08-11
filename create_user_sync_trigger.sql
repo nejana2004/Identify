@@ -5,12 +5,31 @@
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
+  username_candidate TEXT;
   base_username TEXT;
   final_username TEXT;
+  fallback_suffix TEXT;
   counter INT := 0;
 BEGIN
-  -- Generate base username from email
-  base_username := COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1));
+  fallback_suffix := substring(replace(NEW.id::text, '-', '') from 1 for 8);
+
+  username_candidate := COALESCE(
+    NULLIF(trim(NEW.raw_user_meta_data->>'username'), ''),
+    NULLIF(trim(NEW.raw_user_meta_data->>'preferred_username'), ''),
+    ''
+  );
+
+  IF username_candidate = '' OR position('@' in username_candidate) > 0 THEN
+    username_candidate := 'member_' || fallback_suffix;
+  END IF;
+
+  base_username := lower(regexp_replace(username_candidate, '[^a-zA-Z0-9_]+', '_', 'g'));
+  base_username := trim(both '_' from base_username);
+
+  IF base_username = '' THEN
+    base_username := 'member_' || fallback_suffix;
+  END IF;
+
   final_username := base_username;
   
   -- Check if username already exists and add number if needed
@@ -23,7 +42,11 @@ BEGIN
   VALUES (
     NEW.id,
     final_username,
-    COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+    CASE
+      WHEN COALESCE(NULLIF(trim(NEW.raw_user_meta_data->>'name'), ''), NULLIF(trim(NEW.raw_user_meta_data->>'full_name'), ''), '') = '' THEN 'Member'
+      WHEN position('@' in COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name', '')) > 0 THEN 'Member'
+      ELSE COALESCE(NULLIF(trim(NEW.raw_user_meta_data->>'name'), ''), NULLIF(trim(NEW.raw_user_meta_data->>'full_name'), ''))
+    END,
     NEW.email,
     NEW.created_at,
     0, 0, 0
