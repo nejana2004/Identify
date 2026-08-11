@@ -1,21 +1,26 @@
 "use client";
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { slugify } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { FiBell, FiCheck, FiEye, FiHeart, FiMail, FiMapPin, FiTrash2, FiUserPlus } from 'react-icons/fi';
 
 interface Notification {
   id: string;
-  type: 'profile_view' | 'pin' | 'board_invite' | 'join_request' | 'invite_accepted' | 'request_approved' | 'board_follow';
+  type: 'profile_view' | 'pin' | 'board_invite' | 'join_request' | 'invite_accepted' | 'request_approved' | 'board_follow' | 'thread_created' | 'reply_created' | 'card_attached' | 'request_rejected';
   title: string;
   message: string | null;
   from_user_id: string | null;
   board_id: string | null;
+  thread_id?: string | null;
+  product_card_id?: string | null;
   is_read: boolean;
   created_at: string;
   from_user?: { id: string; username: string; name: string; profile_photo: string | null };
-  board?: { id: string; title: string };
+  board?: { id: string; title: string; slug?: string | null };
+  thread?: { id: string; title: string } | null;
 }
 
 export default function NotificationsPage() {
@@ -50,6 +55,7 @@ export default function NotificationsPage() {
         const notificationsWithData = await Promise.all((rawNotifications || []).map(async (notif) => {
           let from_user = null;
           let board = null;
+          let thread = null;
 
           if (notif.from_user_id) {
             const { data } = await supabase.from('users').select('id, username, name, profile_photo').eq('id', notif.from_user_id).single();
@@ -57,11 +63,16 @@ export default function NotificationsPage() {
           }
 
           if (notif.board_id) {
-            const { data } = await supabase.from('boards').select('id, title').eq('id', notif.board_id).single();
+            const { data } = await supabase.from('boards').select('id, title, slug').eq('id', notif.board_id).single();
             board = data;
           }
 
-          return { ...notif, from_user, board };
+          if (notif.thread_id) {
+            const { data } = await supabase.from('threads').select('id, title').eq('id', notif.thread_id).maybeSingle();
+            thread = data;
+          }
+
+          return { ...notif, from_user, board, thread };
         }));
 
         setNotifications(notificationsWithData);
@@ -135,6 +146,10 @@ export default function NotificationsPage() {
       case 'board_invite': return <FiMail className="h-5 w-5 text-[#A78BFA]" />;
       case 'join_request': return <FiUserPlus className="h-5 w-5 text-[#FBBF24]" />;
       case 'board_follow': return <FiHeart className="h-5 w-5 text-[#F472B6]" />;
+      case 'thread_created': return <FiBell className="h-5 w-5 text-[#60A5FA]" />;
+      case 'reply_created': return <FiCheck className="h-5 w-5 text-[#34D399]" />;
+      case 'card_attached': return <FiMapPin className="h-5 w-5 text-[#FBBF24]" />;
+      case 'request_rejected': return <FiTrash2 className="h-5 w-5 text-[#F87171]" />;
       case 'invite_accepted':
       case 'request_approved': return <FiCheck className="h-5 w-5 text-[#34D399]" />;
       default: return <FiBell className="h-5 w-5 text-[#9CA3AF]" />;
@@ -156,6 +171,19 @@ export default function NotificationsPage() {
   };
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const notificationHref = (notification: Notification) => {
+    if (notification.thread && notification.board) {
+      return `/b/${notification.board.slug || slugify(notification.board.title)}/t/${slugify(notification.thread.title)}`;
+    }
+    if (notification.board) {
+      return `/b/${notification.board.slug || slugify(notification.board.title)}`;
+    }
+    if (notification.from_user?.username) {
+      return `/profile/${encodeURIComponent(notification.from_user.username)}`;
+    }
+    return '/notifications';
+  };
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center bg-[#050508]"><div className="h-12 w-12 animate-spin rounded-full border-b-2 border-t-2 border-[#D4AF37]" /></div>;
@@ -198,6 +226,7 @@ export default function NotificationsPage() {
                       </div>
                       {notification.message && <p className="mt-1 text-sm leading-6 text-[#9CA3AF]">{notification.message}</p>}
                       <div className="mt-2 flex items-center gap-3 text-xs text-[#6B7280]"><span>{formatTime(notification.created_at)}</span>{notification.from_user && <span>From {notification.from_user.name || notification.from_user.username}</span>}</div>
+                      <Link href={notificationHref(notification)} className="mt-3 inline-flex text-xs text-[#D4AF37] hover:text-[#F0C94A]">Open</Link>
                     </div>
                     <div className="flex items-center gap-2">
                       {!notification.is_read && <button onClick={() => markAsRead(notification.id)} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-[#F0F0F5]">Read</button>}

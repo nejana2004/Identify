@@ -1,96 +1,206 @@
 "use client";
 
 import Link from 'next/link';
-import { FiArrowRight, FiSearch, FiUsers, FiHash, FiStar, FiGlobe, FiShield } from 'react-icons/fi';
+import { useEffect, useMemo, useState } from 'react';
+import { FiArrowRight, FiSearch } from 'react-icons/fi';
+import { incrementCardClick } from '@/lib/engagement';
+import { supabase } from '@/lib/supabaseClient';
+import { slugify } from '@/lib/utils';
 
-const filters = ['All', 'Boards', 'Threads', 'Products', 'People', 'Places'];
-const sorts = ['Relevance', 'Most Saved', 'Most Recent', 'Top This Month'];
+type BoardRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  slug: string | null;
+  created_at: string;
+  user_id: string;
+};
+
+type ThreadRow = {
+  id: string;
+  board_id: string;
+  title: string;
+  body: string;
+  created_at: string;
+};
+
+type CardRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  price: number | null;
+  external_link: string | null;
+  file_url: string | null;
+  thread_id: string | null;
+  created_at: string;
+  creator_id?: string;
+};
+
+type SearchItem = {
+  id: string;
+  type: 'board' | 'thread' | 'card';
+  title: string;
+  subtitle: string;
+  href: string;
+  createdAt: string;
+  cardId?: string;
+};
+
+const filters = ['all', 'boards', 'threads', 'cards'] as const;
+type Filter = (typeof filters)[number];
 
 export default function SearchPage() {
-	return (
-		<div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-			<div className="rounded-[28px] border border-white/10 bg-[#12121A] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
-				<div className="flex items-center gap-3 rounded-full border border-white/10 bg-[#0A0A0F] px-4 py-3">
-					<FiSearch className="h-5 w-5 text-[#9CA3AF]" />
-					<span className="text-sm text-[#6B7280]">Search boards, threads, products, people...</span>
-				</div>
-			</div>
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
+  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<SearchItem[]>([]);
 
-			<div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
-				<span className="text-[#9CA3AF]">Filters:</span>
-				{filters.map((filter, index) => (
-					<button key={filter} className={`rounded-full px-4 py-2 ${index === 0 ? 'bg-[#D4AF37] text-[#0A0A0F]' : 'border border-white/10 bg-black/20 text-[#F0F0F5]'}`}>{filter}</button>
-				))}
-			</div>
+  useEffect(() => {
+    async function loadIndex() {
+      setLoading(true);
+      try {
+        const [boardsRes, threadsRes, cardsRes] = await Promise.all([
+          supabase.from('boards').select('id, title, description, slug, created_at, user_id').order('created_at', { ascending: false }).limit(120),
+          supabase.from('threads').select('id, board_id, title, body, created_at').order('created_at', { ascending: false }).limit(240),
+          supabase.from('product_cards').select('id, name, description, category, price, external_link, file_url, thread_id, created_at, creator_id').order('created_at', { ascending: false }).limit(300),
+        ]);
 
-			<div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-				<span className="text-[#9CA3AF]">Sort by:</span>
-				{sorts.map((sort, index) => (
-					<button key={sort} className={`rounded-full px-4 py-2 ${index === 0 ? 'bg-[#D4AF37] text-[#0A0A0F]' : 'border border-white/10 bg-black/20 text-[#F0F0F5]'}`}>{sort}</button>
-				))}
-			</div>
+        const boards = (boardsRes.data || []) as BoardRow[];
+        const threads = (threadsRes.data || []) as ThreadRow[];
+        const cards = (cardsRes.data || []) as CardRow[];
 
-			<div className="mt-8 grid gap-6 lg:grid-cols-[1fr_280px]">
-				<main className="space-y-8">
-					<section className="space-y-4">
-						<h1 className="text-3xl font-semibold text-[#F0F0F5]">Search your fresh workspace</h1>
-						<div className="grid gap-4">
-							<SearchResultCard title="No old results loaded" subtitle="Create boards and posts to populate search" meta="No demo data · No old owners · Start fresh" tone="purple" />
-							<SearchResultCard title="Create your first thread" subtitle="Thread · Your board · Draft" meta="0 saves · 0 replies · 0 cards" tone="blue" />
-							<SearchResultCard title="Add a card when ready" subtitle="Product card · Manual" meta="$0 · 0 claims · 0 saves" tone="gold" />
-						</div>
-					</section>
-				</main>
+        const boardById = new Map<string, BoardRow>(boards.map((board) => [board.id, board]));
 
-				<aside className="space-y-4">
-					<section className="rounded-[28px] border border-white/10 bg-[#12121A] p-5">
-						<div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Top reviewers</div>
-						<div className="mt-4 space-y-3">
-							{['@yourname', '@member_one', '@member_two', '@member_three'].map((name, index) => (
-								<div key={name} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-									<div className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white ${index === 0 ? 'bg-[#6C5CE7]' : index === 1 ? 'bg-[#10B981]' : index === 2 ? 'bg-[#F43F5E]' : 'bg-[#F97316]'}`}>{name.slice(1, 3).toUpperCase()}</div>
-									<div>
-										<div className="text-sm font-semibold text-[#F0F0F5]">{name}</div>
-										<div className="text-xs text-[#9CA3AF]">Trusted reviewer</div>
-									</div>
-								</div>
-							))}
-						</div>
-					</section>
+        const boardItems: SearchItem[] = boards.map((board) => ({
+          id: `board-${board.id}`,
+          type: 'board',
+          title: board.title,
+          subtitle: board.description || 'Board',
+          href: `/b/${board.slug || slugify(board.title)}`,
+          createdAt: board.created_at,
+        }));
 
-					<section className="rounded-[28px] border border-white/10 bg-[#12121A] p-5">
-						<div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Categories</div>
-						<div className="mt-4 flex flex-wrap gap-2">
-							{['Your boards', 'Your threads', 'Your products', 'Your people'].map((item) => (
-								<span key={item} className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-sm text-[#F0F0F5]">{item}</span>
-							))}
-						</div>
-					</section>
-				</aside>
-			</div>
-		</div>
-	);
-}
+        const threadItems: SearchItem[] = threads.map((thread) => {
+          const board = boardById.get(thread.board_id);
+          const boardSlug = board ? board.slug || slugify(board.title) : null;
+          return {
+            id: `thread-${thread.id}`,
+            type: 'thread',
+            title: thread.title,
+            subtitle: thread.body || 'Thread',
+            href: boardSlug ? `/b/${boardSlug}/t/${slugify(thread.title)}` : '/boards',
+            createdAt: thread.created_at,
+          };
+        });
 
-function SearchResultCard({ title, subtitle, meta, tone }: { title: string; subtitle: string; meta: string; tone: 'purple' | 'blue' | 'gold' }) {
-	const accents = {
-		purple: 'border-l-[#6C5CE7]',
-		blue: 'border-l-[#3B82F6]',
-		gold: 'border-l-[#D4AF37]',
-	};
+        const seenCardKeys = new Set<string>();
+        const cardItems: SearchItem[] = cards.reduce<SearchItem[]>((accumulator, card) => {
+          const fallbackThread = card.thread_id ? threads.find((candidate) => candidate.id === card.thread_id) : null;
+          const fallbackBoard = fallbackThread ? boardById.get(fallbackThread.board_id) : null;
+          const href = card.external_link || card.file_url || (fallbackThread && fallbackBoard ? `/b/${fallbackBoard.slug || slugify(fallbackBoard.title)}/t/${slugify(fallbackThread.title)}` : '/keys');
+          const dedupeKey = `${card.creator_id || 'unknown'}|${card.external_link || card.file_url || ''}|${card.name.toLowerCase()}`;
 
-	return (
-		<article className={`rounded-[28px] border border-white/10 border-l-4 ${accents[tone]} bg-[#12121A] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.24)]`}>
-			<div className="flex items-start justify-between gap-4">
-				<div>
-					<div className="text-2xl font-semibold text-[#F0F0F5]">{title}</div>
-					<div className="mt-2 text-sm text-[#9CA3AF]">{subtitle}</div>
-					<div className="mt-3 text-sm text-[#9CA3AF]">{meta}</div>
-				</div>
-				<Link href="/discover" className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-[#F0F0F5]">
-					Open <FiArrowRight className="h-4 w-4" />
-				</Link>
-			</div>
-		</article>
-	);
+          if (seenCardKeys.has(dedupeKey)) {
+            return accumulator;
+          }
+
+          seenCardKeys.add(dedupeKey);
+
+          const priceLabel = (card.category === 'product' || card.category === 'service') && card.price !== null ? ` · $${card.price}` : '';
+          accumulator.push({
+            id: `card-${card.id}`,
+            type: 'card',
+            title: card.name,
+            subtitle: `${card.category}${priceLabel}${card.description ? ` · ${card.description}` : ''}`,
+            href,
+            createdAt: card.created_at,
+            cardId: card.id,
+          });
+
+          return accumulator;
+        }, []);
+
+        setItems([...boardItems, ...threadItems, ...cardItems]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadIndex();
+  }, []);
+
+  const visibleItems = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return items
+      .filter((item) => {
+        const typeMatch = filter === 'all' || item.type === (filter === 'cards' ? 'card' : filter.slice(0, -1));
+        const queryMatch = !normalized || `${item.title} ${item.subtitle}`.toLowerCase().includes(normalized);
+        return typeMatch && queryMatch;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [items, query, filter]);
+
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="rounded-[14px] border border-white/10 bg-[#121212] p-4">
+        <div className="flex items-center gap-3 rounded-full border border-white/10 bg-[#0B0B0B] px-4 py-3">
+          <FiSearch className="h-5 w-5 text-[#9CA3AF]" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search boards, threads, products, services, links"
+            className="w-full bg-transparent text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+          />
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {filters.map((item) => (
+            <button
+              key={item}
+              onClick={() => setFilter(item)}
+              className={`rounded-full px-3 py-1.5 text-xs uppercase tracking-[0.14em] ${filter === item ? 'bg-[#F5F5F5] text-black' : 'border border-white/10 bg-[#1A1A1A] text-[#CFCFCF]'}`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-2">
+        {loading ? <div className="rounded-[14px] border border-white/10 bg-[#121212] p-4 text-sm text-[#9CA3AF]">Loading search index...</div> : null}
+
+        {!loading && visibleItems.length === 0 ? (
+          <div className="rounded-[14px] border border-white/10 bg-[#121212] p-4 text-sm text-[#9CA3AF]">
+            No matches yet. Try another keyword or add more boards/threads/cards.
+          </div>
+        ) : null}
+
+        {visibleItems.map((item) => (
+          <Link
+            key={item.id}
+            onClick={() => {
+              if (item.type === 'card' && item.cardId) {
+                void incrementCardClick(item.cardId);
+              }
+            }}
+            href={item.href}
+            target={item.href.startsWith('http') ? '_blank' : undefined}
+            className="block rounded-[12px] border border-white/10 bg-[#121212] p-4 hover:border-white/20"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-[#8D8D8D]">{item.type}</div>
+                <h2 className="mt-1 text-lg font-semibold text-[#F0F0F5]">{item.title}</h2>
+                <p className="mt-1 line-clamp-2 text-sm text-[#A3A3A3]">{item.subtitle}</p>
+              </div>
+              <span className="inline-flex items-center gap-1 text-sm text-[#D4AF37]">
+                Open <FiArrowRight className="h-4 w-4" />
+              </span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
 }

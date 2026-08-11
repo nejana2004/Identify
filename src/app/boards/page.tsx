@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import CreateBoardModal from '@/components/CreateBoardModal';
 import { supabase } from '@/lib/supabaseClient';
 import { FiArrowRight, FiHash, FiMessageCircle, FiPlus, FiSearch, FiShield } from 'react-icons/fi';
 
@@ -29,8 +30,7 @@ export default function BoardsPage() {
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('All');
   const [query, setQuery] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', is_public: true });
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     async function loadBoards() {
@@ -119,48 +119,6 @@ export default function BoardsPage() {
     });
   }, [boards, category, query]);
 
-  const handleCreateBoard = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!user) {
-      router.push('/auth/login');
-      return;
-    }
-    if (!form.title.trim()) return;
-
-    setCreating(true);
-    try {
-      const { data, error } = await supabase
-        .from('boards')
-        .insert({ user_id: user.id, title: form.title.trim(), description: form.description.trim() || null, is_public: form.is_public })
-        .select('id, slug, title, description, created_at, cover_image, is_public, user_id')
-        .single();
-      if (error) throw error;
-
-      const { data: owner } = await supabase.from('users').select('username, name').eq('id', user.id).maybeSingle();
-      const newBoard = {
-        id: data.id,
-        slug: data.slug,
-        title: data.title,
-        description: data.description,
-        is_public: data.is_public,
-        created_at: data.created_at,
-        cover_image: data.cover_image,
-        pin_count: 0,
-        follower_count: 0,
-        owner: owner || { username: 'you', name: 'You' },
-      };
-
-      setMyBoards((prev) => [newBoard, ...prev]);
-      setBoards((prev) => [newBoard, ...prev]);
-      setForm({ title: '', description: '', is_public: true });
-    } catch (error) {
-      console.error('Error creating board:', error);
-      alert('Failed to create board');
-    } finally {
-      setCreating(false);
-    }
-  };
-
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
       <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
@@ -230,17 +188,9 @@ export default function BoardsPage() {
             <FiPlus className="h-5 w-5 text-[#D4AF37]" />
           </div>
 
-          <form onSubmit={handleCreateBoard} className="mt-6 space-y-4">
-            <Field label="Board title" value={form.title} onChange={(value) => setForm((prev) => ({ ...prev, title: value }))} placeholder="My first board" />
-            <Field label="Description" textarea value={form.description} onChange={(value) => setForm((prev) => ({ ...prev, description: value }))} placeholder="A focused board for operators and platform teams." />
-            <label className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-[#0A0A0F] px-4 py-3 text-sm text-[#F0F0F5]">
-              <input type="checkbox" checked={form.is_public} onChange={(event) => setForm((prev) => ({ ...prev, is_public: event.target.checked }))} className="h-4 w-4 rounded border-white/20 bg-transparent text-[#D4AF37]" />
-              Public board
-            </label>
-            <button disabled={creating} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F] disabled:opacity-60">
-              {creating ? 'Creating...' : 'Create board'} <FiArrowRight className="h-4 w-4" />
-            </button>
-          </form>
+          <button onClick={() => setShowCreateModal(true)} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F]">
+            Create board <FiArrowRight className="h-4 w-4" />
+          </button>
 
           <div className="mt-8 space-y-3">
             <h4 className="text-sm font-semibold uppercase tracking-[0.22em] text-[#9CA3AF]">Your boards</h4>
@@ -262,19 +212,8 @@ export default function BoardsPage() {
           )}
         </div>
       </section>
-    </div>
-  );
-}
 
-function Field({ label, value, onChange, placeholder, textarea = false }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; textarea?: boolean }) {
-  return (
-    <div>
-      <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-[#9CA3AF]">{label}</label>
-      {textarea ? (
-        <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="min-h-28 w-full rounded-[24px] border border-white/10 bg-[#0A0A0F] px-4 py-3 text-[#F0F0F5] outline-none placeholder:text-[#4B5563]" />
-      ) : (
-        <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full rounded-[24px] border border-white/10 bg-[#0A0A0F] px-4 py-3 text-[#F0F0F5] outline-none placeholder:text-[#4B5563]" />
-      )}
+      <CreateBoardModal open={showCreateModal} onClose={() => setShowCreateModal(false)} />
     </div>
   );
 }

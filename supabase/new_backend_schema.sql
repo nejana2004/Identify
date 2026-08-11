@@ -209,6 +209,10 @@ CREATE TABLE IF NOT EXISTS public.thread_replies (
   reply_level INTEGER NOT NULL DEFAULT 0,
   save_count INTEGER NOT NULL DEFAULT 0,
   click_count INTEGER NOT NULL DEFAULT 0,
+  upvote_count INTEGER NOT NULL DEFAULT 0,
+  downvote_count INTEGER NOT NULL DEFAULT 0,
+  vote_score INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -374,9 +378,48 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   message TEXT,
   from_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
   board_id UUID REFERENCES public.boards(id) ON DELETE CASCADE,
+  thread_id UUID REFERENCES public.threads(id) ON DELETE CASCADE,
+  product_card_id UUID REFERENCES public.product_cards(id) ON DELETE CASCADE,
   is_read BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS public.content_votes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL,
+  target_id UUID NOT NULL,
+  vote_value SMALLINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, target_type, target_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.content_saves (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL,
+  target_id UUID NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, target_type, target_id)
+);
+
+DO $$ BEGIN
+  ALTER TABLE public.content_votes
+    ADD CONSTRAINT content_votes_target_type_check CHECK (target_type IN ('thread', 'reply'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.content_votes
+    ADD CONSTRAINT content_votes_vote_value_check CHECK (vote_value IN (-1, 1));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.content_saves
+    ADD CONSTRAINT content_saves_target_type_check CHECK (target_type IN ('thread', 'card'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE public.content_votes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.content_saves ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
@@ -395,6 +438,22 @@ CREATE POLICY "Users can update own notifications" ON public.notifications
 DROP POLICY IF EXISTS "Users can delete own notifications" ON public.notifications;
 CREATE POLICY "Users can delete own notifications" ON public.notifications
   FOR DELETE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Public can read content votes" ON public.content_votes;
+CREATE POLICY "Public can read content votes" ON public.content_votes
+  FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can manage own content votes" ON public.content_votes;
+CREATE POLICY "Users can manage own content votes" ON public.content_votes
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Public can read content saves" ON public.content_saves;
+CREATE POLICY "Public can read content saves" ON public.content_saves
+  FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can manage own content saves" ON public.content_saves;
+CREATE POLICY "Users can manage own content saves" ON public.content_saves
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Utility functions used by current code and triggers.
 CREATE OR REPLACE FUNCTION public.handle_new_user()

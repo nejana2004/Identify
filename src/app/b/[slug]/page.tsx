@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { use, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import { getSavesForUser, getVotesForUser, incrementCardClick, setVoteForTarget, toggleSaveForTarget } from '@/lib/engagement';
 import { supabase } from '@/lib/supabaseClient';
 import { slugify } from '@/lib/utils';
-import { FiArrowRight, FiBookmark, FiCheck, FiGlobe, FiLock, FiMessageCircle, FiPlus, FiSearch, FiShield, FiStar, FiUsers } from 'react-icons/fi';
+import { FiArrowRight, FiBookmark, FiCheck, FiChevronDown, FiChevronUp, FiEdit2, FiGlobe, FiLock, FiLogOut, FiMessageCircle, FiPlus, FiShare2, FiShield, FiTrash2, FiUserPlus, FiUsers, FiX } from 'react-icons/fi';
 
 type BoardRow = {
   id: string;
@@ -37,6 +39,9 @@ type ThreadRow = {
   save_count: number;
   click_count: number;
   view_count: number;
+  upvote_count: number;
+  downvote_count: number;
+  vote_score: number;
   reply_count?: number;
   created_at: string;
   author_id: string;
@@ -91,6 +96,7 @@ type InventoryCard = {
 
 export default function BoardVaultPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
+  const router = useRouter();
 
   const [user, setUser] = useState<any>(null);
   const [board, setBoard] = useState<BoardRow | null>(null);
@@ -107,7 +113,17 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
   const [composerType, setComposerType] = useState<'question' | 'answer' | 'review' | 'recommendation'>('question');
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [showInventory, setShowInventory] = useState(false);
+  const [externalCardLink, setExternalCardLink] = useState('');
   const [posting, setPosting] = useState(false);
+  const [isMember, setIsMember] = useState(false);
+  const [hasPendingRequest, setHasPendingRequest] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const [savedBoard, setSavedBoard] = useState(false);
+  const [boardSaveCount, setBoardSaveCount] = useState(0);
+  const [threadVotes, setThreadVotes] = useState<Record<string, number>>({});
+  const [savedThreads, setSavedThreads] = useState<Record<string, boolean>>({});
+  const [savedCards, setSavedCards] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     async function loadBoard() {
@@ -136,18 +152,26 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
 
         setBoard(resolvedBoard);
 
-        const [ownerResult, threadResult, memberResult] = await Promise.all([
+        const [ownerResult, threadResult, memberResult, followerResult] = await Promise.all([
           supabase.from('users').select('username, name, profile_photo').eq('id', resolvedBoard.user_id).maybeSingle(),
           supabase.from('threads').select('id, title, body, thread_type, is_pinned, is_solved, save_count, click_count, view_count, created_at, author_id').eq('board_id', resolvedBoard.id).order('is_pinned', { ascending: false }).order('created_at', { ascending: false }),
-          supabase.from('board_followers').select('user_id').eq('board_id', resolvedBoard.id).limit(8),
+          supabase.from('board_members').select('user_id').eq('board_id', resolvedBoard.id).limit(8),
+          supabase.from('board_followers').select('user_id').eq('board_id', resolvedBoard.id),
         ]);
 
         setOwner(ownerResult.data || null);
+        setBoardSaveCount((followerResult.data || []).length);
 
-        const formattedThreads = (threadResult.data || []) as ThreadRow[];
+        const formattedThreads = ((threadResult.data || []) as any[]).map((thread) => ({
+          ...thread,
+          upvote_count: thread.upvote_count || 0,
+          downvote_count: thread.downvote_count || 0,
+          vote_score: thread.vote_score || 0,
+        })) as ThreadRow[];
         setThreads(formattedThreads);
 
         const threadIds = formattedThreads.map((item) => item.id);
+        let boardCardIds: string[] = [];
         if (threadIds.length > 0) {
           const { data: replyRows } = await supabase
             .from('thread_replies')
@@ -176,13 +200,15 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
             return accumulator;
           }, {});
 
+          boardCardIds = (cardRows || []).map((card) => card.id);
+
           setThreadCards(groupedCards);
         } else {
           setThreadCards({});
         }
 
         if (authData.user) {
-          const [inventoryResult, profileResult] = await Promise.all([
+          const [inventoryResult, profileResult, membershipResult, joinRequestResult] = await Promise.all([
             supabase
               .from('product_cards')
               .select('id, name, description, price, category, image_url, file_url, external_link, verified_owner')
@@ -190,13 +216,31 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
               .is('thread_id', null)
               .order('created_at', { ascending: false }),
             supabase.from('users').select('id, name, username, profile_photo').in('id', (memberResult.data || []).map((item) => item.user_id)),
+            supabase.from('board_members').select('id').eq('board_id', resolvedBoard.id).eq('user_id', authData.user.id).maybeSingle(),
+            supabase.from('board_join_requests').select('id, status').eq('board_id', resolvedBoard.id).eq('user_id', authData.user.id).eq('status', 'pending').maybeSingle(),
           ]);
+          const voteRows = await getVotesForUser(authData.user.id, 'thread', threadIds);
+          const saveRows = await getSavesForUser(authData.user.id, 'thread', threadIds);
+          const cardSaveRows = await getSavesForUser(authData.user.id, 'card', boardCardIds);
+          const { data: followedBoard } = await supabase.from('board_followers').select('id').eq('board_id', resolvedBoard.id).eq('user_id', authData.user.id).maybeSingle();
 
           setInventoryCards((inventoryResult.data || []) as InventoryCard[]);
           setMembers((profileResult.data || []) as BoardMember[]);
+          setIsMember(!!membershipResult.data || resolvedBoard.user_id === authData.user.id);
+          setHasPendingRequest(!!joinRequestResult.data);
+          setSavedBoard(!!followedBoard);
+          setThreadVotes(Object.fromEntries(voteRows.map((item) => [item.target_id, item.vote_value])));
+          setSavedThreads(Object.fromEntries(saveRows.map((item) => [item.target_id, true])));
+          setSavedCards(Object.fromEntries(cardSaveRows.map((item) => [item.target_id, true])));
         } else {
           setInventoryCards([]);
           setMembers([]);
+          setIsMember(false);
+          setHasPendingRequest(false);
+          setSavedBoard(false);
+          setThreadVotes({});
+          setSavedThreads({});
+          setSavedCards({});
         }
       } catch (boardError: any) {
         setError(boardError?.message || 'Failed to load board.');
@@ -211,6 +255,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
   const boardSlug = board ? (board.slug || slugify(board.title)) : slug;
   const boardTitle = board?.title || 'Board';
   const ownerName = owner?.name || owner?.username || 'Unknown creator';
+  const boardCards = useMemo(() => threads.flatMap((thread) => threadCards[thread.id] || []), [threadCards, threads]);
   const stats = useMemo(() => {
     const totalCards = threads.reduce((sum, thread) => sum + (threadCards[thread.id]?.length || 0), 0);
 
@@ -218,8 +263,9 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       { value: `${members.length || 0}`, label: 'members', icon: <FiUsers className="h-4 w-4" /> },
       { value: `${threads.length || 0}`, label: 'threads', icon: <FiMessageCircle className="h-4 w-4" /> },
       { value: `${totalCards}`, label: 'cards', icon: <FiBookmark className="h-4 w-4" /> },
+      { value: `${boardSaveCount}`, label: 'saves', icon: <FiBookmark className="h-4 w-4" /> },
     ];
-  }, [members.length, threadCards, threads]);
+  }, [boardSaveCount, members.length, threadCards, threads]);
 
   async function createThread() {
     if (!board || !user || posting) return;
@@ -251,6 +297,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       }
 
       const selectedCards = inventoryCards.filter((card) => selectedCardIds.includes(card.id));
+      const newCards: any[] = [];
       if (selectedCards.length > 0) {
         const duplicateCards = selectedCards.map((card) => ({
           creator_id: user.id,
@@ -265,9 +312,33 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
           verified_owner: card.verified_owner,
         }));
 
+        newCards.push(...duplicateCards);
+
         const { error: cardError } = await supabase.from('product_cards').insert(duplicateCards);
         if (cardError) {
           throw cardError;
+        }
+      }
+
+      if (externalCardLink.trim()) {
+        const linkCard = {
+          creator_id: user.id,
+          thread_id: threadData.id,
+          name: 'External link',
+          description: 'Attached from thread composer',
+          price: null,
+          category: 'service',
+          image_url: null,
+          file_url: null,
+          external_link: externalCardLink.trim(),
+          verified_owner: false,
+        };
+
+        newCards.push(linkCard);
+
+        const { error: linkError } = await supabase.from('product_cards').insert(linkCard);
+        if (linkError) {
+          throw linkError;
         }
       }
 
@@ -275,34 +346,37 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       setComposerBody('');
       setComposerType('question');
       setSelectedCardIds([]);
+      setExternalCardLink('');
       setShowInventory(false);
 
-      const nextThread = threadData as ThreadRow;
+      const nextThread = { ...(threadData as any), upvote_count: 0, downvote_count: 0, vote_score: 0 } as ThreadRow;
       setThreads((current) => [nextThread, ...current]);
-      if (selectedCardIds.length > 0) {
-        const attachedCards = inventoryCards.filter((card) => selectedCardIds.includes(card.id)).map((card) => ({
-          id: `draft-${card.id}`,
-          name: card.name,
-          description: card.description,
-          price: card.price,
-          category: card.category,
-          image_url: card.image_url,
-          file_url: card.file_url,
-          external_link: card.external_link,
-          verified_owner: card.verified_owner,
-          save_count: 0,
-          click_count: 0,
-          purchase_count: 0,
-          usage_count: 0,
-          created_at: new Date().toISOString(),
-          thread_id: nextThread.id,
-          creator_id: user.id,
-        })) as ProductCardRow[];
+      if (newCards.length > 0) {
+        const { data: freshCards } = await supabase
+          .from('product_cards')
+          .select('id, name, description, price, category, image_url, file_url, external_link, verified_owner, save_count, click_count, purchase_count, usage_count, created_at, thread_id, creator_id')
+          .eq('thread_id', nextThread.id)
+          .order('created_at', { ascending: true });
 
         setThreadCards((current) => ({
           ...current,
-          [nextThread.id]: attachedCards,
+          [nextThread.id]: (freshCards || []) as ProductCardRow[],
         }));
+      }
+
+      setReplyCounts((current) => ({ ...current, [nextThread.id]: 0 }));
+
+      if (board.user_id !== user.id) {
+        const actor = user.user_metadata?.name || user.user_metadata?.username || user.email || 'Someone';
+        await supabase.from('notifications').insert({
+          user_id: board.user_id,
+          type: newCards.length > 0 ? 'card_attached' : 'thread_created',
+          title: newCards.length > 0 ? 'New thread with attachment' : 'New thread in your board',
+          message: `${actor} posted "${threadData.title}" in ${board.title}`,
+          from_user_id: user.id,
+          board_id: board.id,
+          thread_id: threadData.id,
+        });
       }
     } catch (postError: any) {
       setError(postError?.message || 'Failed to publish thread.');
@@ -314,7 +388,292 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
   const title = boardTitle;
   const stateLabel = board?.board_type === 'paid' ? 'Paid board' : board?.board_type === 'invite-only' ? 'Invite-only board' : 'Open board';
   const stateIcon = board?.board_type === 'paid' || board?.board_type === 'invite-only' ? <FiLock className="h-4 w-4" /> : <FiGlobe className="h-4 w-4" />;
-  const canPost = !!user && (board?.is_public || board?.user_id === user?.id);
+  const canPost = !!user && (board?.is_public || board?.user_id === user?.id || isMember);
+  const supportsPrice = (category: string) => category === 'product' || category === 'service';
+  const cardTarget = (card: ProductCardRow) => card.external_link || card.file_url || `/keys`;
+
+  async function shareBoard() {
+    if (!board) return;
+    const url = `${window.location.origin}/b/${boardSlug}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: board.title, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
+      setShareState('copied');
+      window.setTimeout(() => setShareState('idle'), 1800);
+    } catch {}
+  }
+
+  async function toggleBoardMembership() {
+    if (!board) return;
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
+    if (user.id === board.user_id) return;
+
+    setJoining(true);
+    setError(null);
+
+    try {
+      if (isMember) {
+        const response = await fetch('/api/boards/invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'leave_board', boardId: board.id, userId: user.id }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Failed to leave board.');
+        setIsMember(false);
+        return;
+      }
+
+      if (board.board_type === 'invite-only') {
+        const response = await fetch('/api/boards/invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'request_join', boardId: board.id, userId: user.id }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Failed to request access.');
+        setHasPendingRequest(true);
+        return;
+      }
+
+      const actorName = user.user_metadata?.name || user.user_metadata?.username || user.email || 'Someone';
+
+      const { error: memberError } = await supabase.from('board_members').upsert({ board_id: board.id, user_id: user.id, role: 'member' }, { onConflict: 'board_id,user_id' });
+
+      if (memberError) throw memberError;
+
+      if (board.user_id !== user.id) {
+        await supabase.from('notifications').insert({
+          user_id: board.user_id,
+          type: 'board_follow',
+          title: 'New board join',
+          message: `${actorName} joined ${board.title}`,
+          from_user_id: user.id,
+          board_id: board.id,
+        });
+      }
+
+      setIsMember(true);
+    } catch (membershipError: any) {
+      setError(membershipError?.message || 'Unable to update board membership.');
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  async function toggleBoardSave() {
+    if (!board || !user) {
+      router.push('/auth/login');
+      return;
+    }
+
+    const query = supabase.from('board_followers').select('id').eq('board_id', board.id).eq('user_id', user.id).maybeSingle();
+    const { data: existing } = await query;
+
+    if (existing) {
+      await supabase.from('board_followers').delete().eq('id', existing.id);
+      setSavedBoard(false);
+      setBoardSaveCount((current) => Math.max(0, current - 1));
+      return;
+    }
+
+    await supabase.from('board_followers').insert({ board_id: board.id, user_id: user.id });
+    setSavedBoard(true);
+    setBoardSaveCount((current) => current + 1);
+  }
+
+  async function handleThreadVote(threadId: string, value: 1 | -1) {
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
+
+    try {
+      const result = await setVoteForTarget(user.id, 'thread', threadId, value);
+      setThreadVotes((current) => ({ ...current, [threadId]: result.activeVote }));
+      setThreads((current) => current.map((thread) => thread.id === threadId ? {
+        ...thread,
+        upvote_count: result.upvoteCount,
+        downvote_count: result.downvoteCount,
+        vote_score: result.voteScore,
+      } : thread));
+    } catch (voteError: any) {
+      setError(voteError?.message || 'Unable to vote on thread.');
+    }
+  }
+
+  async function handleThreadSave(threadId: string) {
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
+
+    try {
+      const result = await toggleSaveForTarget(user.id, 'thread', threadId);
+      setSavedThreads((current) => ({ ...current, [threadId]: result.saved }));
+      setThreads((current) => current.map((thread) => thread.id === threadId ? { ...thread, save_count: result.saveCount } : thread));
+    } catch (saveError: any) {
+      setError(saveError?.message || 'Unable to save thread.');
+    }
+  }
+
+  async function handleCardOpen(card: ProductCardRow) {
+    await incrementCardClick(card.id);
+    if (!card.thread_id) return;
+    setThreadCards((current) => ({
+      ...current,
+      [card.thread_id as string]: (current[card.thread_id as string] || []).map((item) => item.id === card.id ? { ...item, click_count: (item.click_count || 0) + 1 } : item),
+    }));
+  }
+
+  async function handleCardSave(cardId: string) {
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
+
+    try {
+      const result = await toggleSaveForTarget(user.id, 'card', cardId);
+      setSavedCards((current) => ({ ...current, [cardId]: result.saved }));
+      setThreadCards((current) => Object.fromEntries(Object.entries(current).map(([threadId, cards]) => [
+        threadId,
+        cards.map((card) => card.id === cardId ? { ...card, save_count: result.saveCount } : card),
+      ])));
+    } catch (saveError: any) {
+      setError(saveError?.message || 'Unable to save card.');
+    }
+  }
+
+  async function removeBoard() {
+    if (!board || !user || board.user_id !== user.id) return;
+    if (!window.confirm('Delete this board and all its threads/cards?')) return;
+
+    const { error: deleteError } = await supabase
+      .from('boards')
+      .delete()
+      .eq('id', board.id)
+      .eq('user_id', user.id);
+
+    if (deleteError) {
+      setError(deleteError.message || 'Failed to delete board.');
+      return;
+    }
+
+    router.push('/boards');
+  }
+
+  async function editThread(thread: ThreadRow) {
+    if (!user || thread.author_id !== user.id) return;
+    const nextTitle = window.prompt('Edit thread title', thread.title);
+    if (!nextTitle) return;
+    const nextBody = window.prompt('Edit thread body', thread.body);
+    if (!nextBody) return;
+
+    const { data, error: updateError } = await supabase
+      .from('threads')
+      .update({ title: nextTitle.trim(), body: nextBody.trim(), updated_at: new Date().toISOString() })
+      .eq('id', thread.id)
+      .eq('author_id', user.id)
+      .select('id, title, body, thread_type, is_pinned, is_solved, save_count, click_count, view_count, created_at, author_id')
+      .single();
+
+    if (updateError || !data) {
+      setError(updateError?.message || 'Failed to update thread.');
+      return;
+    }
+
+    setThreads((current) => current.map((item) => item.id === thread.id ? ({ ...(data as any), upvote_count: item.upvote_count || 0, downvote_count: item.downvote_count || 0, vote_score: item.vote_score || 0 } as ThreadRow) : item));
+  }
+
+  async function deleteThread(thread: ThreadRow) {
+    if (!user || thread.author_id !== user.id) return;
+    if (!window.confirm('Delete this thread?')) return;
+
+    const { error: deleteError } = await supabase
+      .from('threads')
+      .delete()
+      .eq('id', thread.id)
+      .eq('author_id', user.id);
+
+    if (deleteError) {
+      setError(deleteError.message || 'Failed to delete thread.');
+      return;
+    }
+
+    setThreads((current) => current.filter((item) => item.id !== thread.id));
+    setThreadCards((current) => {
+      const next = { ...current };
+      delete next[thread.id];
+      return next;
+    });
+  }
+
+  async function editCard(card: ProductCardRow, threadId: string) {
+    if (!user || card.creator_id !== user.id) return;
+    const nextName = window.prompt('Card name', card.name);
+    if (!nextName) return;
+    const nextDescription = window.prompt('Card description', card.description || '') ?? '';
+    const nextExternal = window.prompt('External link', card.external_link || '') ?? '';
+    const acceptsPrice = card.category === 'product' || card.category === 'service';
+    const nextPriceRaw = acceptsPrice ? window.prompt('Price (optional)', card.price?.toString() || '') ?? '' : '';
+    const nextPrice = acceptsPrice && nextPriceRaw.trim() ? Number(nextPriceRaw) : null;
+
+    if (acceptsPrice && nextPriceRaw.trim() && Number.isNaN(nextPrice)) {
+      setError('Price must be a valid number.');
+      return;
+    }
+
+    const { data, error: updateError } = await supabase
+      .from('product_cards')
+      .update({
+        name: nextName.trim(),
+        description: nextDescription.trim() || null,
+        external_link: nextExternal.trim() || null,
+        price: nextPrice,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', card.id)
+      .eq('creator_id', user.id)
+      .select('id, name, description, price, category, image_url, file_url, external_link, verified_owner, save_count, click_count, purchase_count, usage_count, created_at, thread_id, creator_id')
+      .single();
+
+    if (updateError || !data) {
+      setError(updateError?.message || 'Failed to update card.');
+      return;
+    }
+
+    setThreadCards((current) => ({
+      ...current,
+      [threadId]: (current[threadId] || []).map((item) => item.id === card.id ? (data as ProductCardRow) : item),
+    }));
+  }
+
+  async function deleteCard(card: ProductCardRow, threadId: string) {
+    if (!user || card.creator_id !== user.id) return;
+    if (!window.confirm('Delete this card?')) return;
+
+    const { error: deleteError } = await supabase
+      .from('product_cards')
+      .delete()
+      .eq('id', card.id)
+      .eq('creator_id', user.id);
+
+    if (deleteError) {
+      setError(deleteError.message || 'Failed to delete card.');
+      return;
+    }
+
+    setThreadCards((current) => ({
+      ...current,
+      [threadId]: (current[threadId] || []).filter((item) => item.id !== card.id),
+    }));
+  }
 
   if (loading) {
     return <Shell><LoadingPanel /></Shell>;
@@ -360,29 +719,35 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                     {stat.value} {stat.label}
                   </span>
                 ))}
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#0A0A0F] px-3 py-1.5">
-                  <FiShield className="h-4 w-4" />
-                  Top contributor badge enabled
-                </span>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {user?.id === board.user_id && (
+                <>
+                  <Link href={`/boards/${board.id}/edit`} title="Edit board" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-[#F0F0F5]">
+                    <FiEdit2 className="h-4 w-4" />
+                  </Link>
+                  <button onClick={removeBoard} title="Delete board" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-red-400/30 bg-red-400/10 text-red-300">
+                    <FiTrash2 className="h-4 w-4" />
+                  </button>
+                </>
+              )}
               {board.board_type === 'paid' ? (
                 <Link href={`/checkout?product=board-access&title=${encodeURIComponent(title)}&price=${encodeURIComponent(String(board.access_price || 9))}`} className="inline-flex items-center justify-center rounded-full bg-[#D4AF37] px-5 py-3 text-sm font-semibold text-[#0A0A0F]">
                   Subscribe ${board.access_price || 9}/month
                 </Link>
-              ) : board.board_type === 'invite-only' ? (
-                <button className="inline-flex items-center justify-center rounded-full bg-[#D4AF37] px-5 py-3 text-sm font-semibold text-[#0A0A0F]">
-                  Request access
-                </button>
               ) : (
-                <button className="inline-flex items-center justify-center rounded-full bg-[#D4AF37] px-5 py-3 text-sm font-semibold text-[#0A0A0F]">
-                  Join board
+                <button onClick={toggleBoardMembership} disabled={joining || hasPendingRequest} className="inline-flex items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-5 py-3 text-sm font-semibold text-[#0A0A0F] disabled:opacity-60">
+                  {isMember ? <FiLogOut className="h-4 w-4" /> : board.board_type === 'invite-only' ? <FiUserPlus className="h-4 w-4" /> : <FiUsers className="h-4 w-4" />}
+                  {isMember ? 'Leave' : hasPendingRequest ? 'Pending' : board.board_type === 'invite-only' ? 'Request access' : 'Join'}
                 </button>
               )}
-              <button className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-[#F0F0F5]">
-                Share
+              <button onClick={toggleBoardSave} title="Save board" className={`inline-flex h-11 w-11 items-center justify-center rounded-full border ${savedBoard ? 'border-[#D4AF37]/35 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/10 bg-white/[0.03] text-[#F0F0F5]'}`}>
+                <FiBookmark className="h-4 w-4" />
+              </button>
+              <button onClick={shareBoard} title="Share board" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-[#F0F0F5]">
+                {shareState === 'copied' ? <FiCheck className="h-4 w-4 text-[#10B981]" /> : <FiShare2 className="h-4 w-4" />}
               </button>
             </div>
           </div>
@@ -398,7 +763,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
           <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="space-y-4">
               {threads.length > 0 ? threads.map((thread) => (
-                <article key={thread.id} className={`rounded-[28px] border border-white/10 bg-[#12121A] p-5 ${thread.is_pinned ? 'border-l-4 border-l-[#D4AF37]' : ''}`}>
+                <article key={thread.id} className={`rounded-[14px] border border-white/10 bg-[#121212] p-4 ${thread.is_pinned ? 'border-l-4 border-l-[#D4AF37]' : ''}`}>
                   <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
                     <FiMessageCircle className="h-4 w-4 text-[#D4AF37]" />
                     {thread.thread_type}
@@ -416,32 +781,58 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                               <div className="mt-1 text-sm leading-6 text-[#9CA3AF]">{card.description || 'Recommendation card attached to this thread.'}</div>
                               <div className="mt-2 flex flex-wrap gap-2 text-xs text-[#9CA3AF]">
                                 <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">{card.category}</span>
+                                {supportsPrice(card.category) && card.price !== null ? <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">${card.price}</span> : null}
                                 <span className="rounded-full border border-[#10B981]/20 bg-[#10B981]/10 px-3 py-1 text-[#10B981]">{card.verified_owner ? 'Verified owner' : 'External'}</span>
                               </div>
                             </div>
-                            <Link href={card.external_link || `/checkout?title=${encodeURIComponent(card.name)}&price=${encodeURIComponent(String(card.price || 0))}`} className="inline-flex items-center gap-1 rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-4 py-2 text-sm font-semibold text-[#D4AF37]">
+                            <Link onClick={() => void handleCardOpen(card)} href={cardTarget(card)} target={cardTarget(card).startsWith('http') ? '_blank' : undefined} className="inline-flex items-center gap-1 rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-4 py-2 text-sm font-semibold text-[#D4AF37]">
                               Open
                               <FiArrowRight className="h-4 w-4" />
                             </Link>
                           </div>
+                            <div className="mt-3 flex gap-2">
+                              <button onClick={() => handleCardSave(card.id)} className={`rounded-full border px-3 py-1 text-xs ${savedCards[card.id] ? 'border-[#D4AF37]/35 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/20 bg-white/[0.03] text-[#F0F0F5]'}`}>Save</button>
+                              {user?.id === card.creator_id && (
+                                <>
+                                  <button onClick={() => editCard(card, thread.id)} className="rounded-full border border-white/20 bg-white/[0.03] px-3 py-1 text-xs text-[#F0F0F5]">Edit</button>
+                                  <button onClick={() => deleteCard(card, thread.id)} className="rounded-full border border-red-400/30 bg-red-400/10 px-3 py-1 text-xs text-red-300">Delete</button>
+                                </>
+                              )}
+                            </div>
                         </div>
                       ))}
                     </div>
                   ) : null}
                   <div className="mt-4 flex flex-wrap gap-2 text-xs text-[#9CA3AF]">
-                    <Badge text={`${replyCounts[thread.id] || 0} replies`} />
-                    <Badge text={`${thread.save_count} saves`} />
-                    <Badge text={`${thread.view_count} views`} />
-                    <Badge text={`${thread.click_count} clicks`} />
+                    <Badge text={`${replyCounts[thread.id] || 0}`} icon={<FiMessageCircle className="h-3.5 w-3.5" />} />
+                    <Badge text={`${thread.vote_score || 0}`} icon={<FiChevronUp className="h-3.5 w-3.5" />} />
+                    <Badge text={`${thread.save_count}`} icon={<FiCheck className="h-3.5 w-3.5" />} />
+                    <Badge text={`${thread.view_count}`} icon={<FiGlobe className="h-3.5 w-3.5" />} />
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-3">
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <button onClick={() => handleThreadVote(thread.id, 1)} title="Upvote" className={`inline-flex h-10 w-10 items-center justify-center rounded-full border ${threadVotes[thread.id] === 1 ? 'border-[#D4AF37]/40 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/10 bg-white/[0.03] text-[#F0F0F5]'}`}>
+                      <FiChevronUp className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => handleThreadVote(thread.id, -1)} title="Downvote" className={`inline-flex h-10 w-10 items-center justify-center rounded-full border ${threadVotes[thread.id] === -1 ? 'border-red-400/40 bg-red-500/10 text-red-300' : 'border-white/10 bg-white/[0.03] text-[#F0F0F5]'}`}>
+                      <FiChevronDown className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => handleThreadSave(thread.id)} title="Save thread" className={`inline-flex h-10 w-10 items-center justify-center rounded-full border ${savedThreads[thread.id] ? 'border-[#D4AF37]/35 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/10 bg-white/[0.03] text-[#F0F0F5]'}`}>
+                      <FiBookmark className="h-4 w-4" />
+                    </button>
                     <Link href={`/b/${boardSlug}/t/${slugify(thread.title)}`} className="inline-flex items-center gap-2 rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-4 py-2 text-sm font-semibold text-[#D4AF37]">
                       Open thread
                       <FiArrowRight className="h-4 w-4" />
                     </Link>
-                    <button className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-[#F0F0F5]">
-                      <FiBookmark className="h-4 w-4 text-[#D4AF37]" /> Save
-                    </button>
+                    {user?.id === thread.author_id && (
+                      <>
+                        <button onClick={() => editThread(thread)} title="Edit thread" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/[0.03] text-[#F0F0F5]">
+                          <FiEdit2 className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => deleteThread(thread)} title="Delete thread" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-red-400/30 bg-red-400/10 text-red-300">
+                          <FiTrash2 className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </article>
               )) : (
@@ -450,13 +841,52 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                 </div>
               )}
 
-              <div className="rounded-[28px] border border-white/10 bg-[#12121A] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
+              <section className="rounded-[14px] border border-white/10 bg-[#121212] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Cards</div>
+                    <div className="mt-2 text-xl font-semibold text-[#F0F0F5]">Board recommendations</div>
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-[#0A0A0F] px-3 py-1 text-xs text-[#9CA3AF]">{boardCards.length} visible</div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {boardCards.length > 0 ? boardCards.map((card) => (
+                    <div key={card.id} className="rounded-[12px] border border-white/10 bg-[#0A0A0F] p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <Link onClick={() => void handleCardOpen(card)} href={cardTarget(card)} target={cardTarget(card).startsWith('http') ? '_blank' : undefined} className="text-base font-semibold text-[#F0F0F5] hover:text-[#D4AF37]">{card.name}</Link>
+                          <div className="mt-1 text-sm text-[#9CA3AF]">{card.description || 'Attached recommendation'}</div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-[#8D8D8D]">
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">{card.category}</span>
+                            {supportsPrice(card.category) && card.price !== null ? <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">${card.price}</span> : null}
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">{card.click_count} clicks</span>
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">{card.save_count} saves</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => handleCardSave(card.id)} className={`rounded-full border px-3 py-2 text-xs ${savedCards[card.id] ? 'border-[#D4AF37]/35 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/20 bg-white/[0.03] text-[#F0F0F5]'}`}>Save</button>
+                          <Link onClick={() => void handleCardOpen(card)} href={cardTarget(card)} target={cardTarget(card).startsWith('http') ? '_blank' : undefined} className="inline-flex items-center gap-1 rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-3 py-2 text-xs font-semibold text-[#D4AF37]">
+                            Open
+                            <FiArrowRight className="h-3.5 w-3.5" />
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  )) : (
+                    <div className="rounded-[12px] border border-white/10 bg-[#0A0A0F] p-4 text-sm text-[#9CA3AF] md:col-span-2">
+                      No cards attached to this board yet. Once a thread includes a recommendation, it will appear here as well as inside the thread.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <div className="rounded-[14px] border border-white/10 bg-[#121212] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Composer</div>
                     <div className="mt-2 text-xl font-semibold text-[#F0F0F5]">Start a thread</div>
                   </div>
-                  <div className="rounded-full border border-white/10 bg-[#0A0A0F] px-3 py-1 text-xs text-[#9CA3AF]">Type / to attach a card</div>
                 </div>
 
                 <div className="mt-4 grid gap-3">
@@ -469,12 +899,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                   />
                   <textarea
                     value={composerBody}
-                    onChange={(event) => {
-                      setComposerBody(event.target.value);
-                      if (event.target.value.includes('/')) {
-                        setShowInventory(true);
-                      }
-                    }}
+                    onChange={(event) => setComposerBody(event.target.value)}
                     placeholder="Write a question, answer, review, or recommendation..."
                     className="min-h-[150px] rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-sm leading-7 text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
                     disabled={!canPost}
@@ -497,7 +922,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                     <button
                       onClick={() => setShowInventory((current) => !current)}
                       className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-[#F0F0F5]"
-                      disabled={!canPost || inventoryCards.length === 0}
+                      disabled={!canPost}
                     >
                       <FiPlus className="h-4 w-4 text-[#D4AF37]" />
                       {selectedCardIds.length > 0 ? `${selectedCardIds.length} cards attached` : 'Attach from inventory'}
@@ -513,34 +938,6 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                     </button>
                   </div>
 
-                  {showInventory && inventoryCards.length > 0 && (
-                    <div className="rounded-[24px] border border-white/10 bg-[#0A0A0F] p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-xs uppercase tracking-[0.18em] text-[#D4AF37]">Inventory</div>
-                        <button className="text-xs text-[#9CA3AF]" onClick={() => setShowInventory(false)}>Hide</button>
-                      </div>
-                      <div className="mt-3 grid gap-2 max-h-[260px] overflow-y-auto pr-1">
-                        {inventoryCards.map((card) => {
-                          const checked = selectedCardIds.includes(card.id);
-                          return (
-                            <button
-                              key={card.id}
-                              onClick={() => {
-                                setSelectedCardIds((current) => current.includes(card.id) ? current.filter((id) => id !== card.id) : [...current, card.id]);
-                              }}
-                              className={`flex items-center justify-between gap-4 rounded-2xl border px-4 py-3 text-left ${checked ? 'border-[#D4AF37]/30 bg-[#D4AF37]/10' : 'border-white/10 bg-[#12121A]'}`}
-                            >
-                              <div>
-                                <div className="text-sm font-semibold text-[#F0F0F5]">{card.name}</div>
-                                <div className="text-xs text-[#9CA3AF]">{card.category} · {card.price ? `$${card.price}` : 'Free'}</div>
-                              </div>
-                              {checked ? <FiCheck className="h-4 w-4 text-[#D4AF37]" /> : <FiPlus className="h-4 w-4 text-[#9CA3AF]" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -585,9 +982,9 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                 <div className="mt-4 grid gap-3">
                   {threads.flatMap((thread) => threadCards[thread.id] || []).slice(0, 3).map((card) => (
                     <div key={card.id} className="rounded-2xl border border-white/10 bg-[#0A0A0F] p-4">
-                      <div className="text-sm font-semibold text-[#F0F0F5]">{card.name}</div>
+                      <Link onClick={() => void handleCardOpen(card)} href={cardTarget(card)} target={cardTarget(card).startsWith('http') ? '_blank' : undefined} className="text-sm font-semibold text-[#F0F0F5] hover:text-[#D4AF37]">{card.name}</Link>
                       <div className="mt-1 text-sm text-[#9CA3AF]">{card.description || 'Attached recommendation'}</div>
-                      <div className="mt-2 text-xs text-[#9CA3AF]">{card.verified_owner ? 'Verified owner' : 'External'} · {card.price ? `$${card.price}` : 'Free'}</div>
+                      <div className="mt-2 text-xs text-[#9CA3AF]">{card.verified_owner ? 'Verified owner' : 'External'}{supportsPrice(card.category) && card.price !== null ? ` · $${card.price}` : ''}</div>
                     </div>
                   ))}
                   {threads.every((thread) => !(threadCards[thread.id] || []).length) && (
@@ -601,6 +998,64 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
           </div>
         </div>
       </div>
+
+      {showInventory && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="w-full max-w-2xl rounded-[16px] border border-white/10 bg-[#0F0F0F] p-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <div className="text-sm font-semibold text-[#F5F5F5]">Attach from inventory</div>
+                <div className="text-xs text-[#8D8D8D]">Select cards to attach in your new thread.</div>
+              </div>
+              <button onClick={() => setShowInventory(false)} className="rounded-md border border-white/15 bg-[#1A1A1A] p-1.5 text-[#D0D0D0]"><FiX className="h-4 w-4" /></button>
+            </div>
+
+            <div className="mt-3 max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+              <div className="rounded-xl border border-white/10 bg-[#171717] p-3">
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">External link only</label>
+                <input
+                  value={externalCardLink}
+                  onChange={(event) => setExternalCardLink(event.target.value)}
+                  placeholder="https://..."
+                  className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+
+              {inventoryCards.length > 0 ? inventoryCards.map((card) => {
+                const checked = selectedCardIds.includes(card.id);
+                return (
+                  <button
+                    key={card.id}
+                    onClick={() => setSelectedCardIds((current) => current.includes(card.id) ? current.filter((id) => id !== card.id) : [...current, card.id])}
+                    className={`w-full rounded-xl border p-3 text-left ${checked ? 'border-[#D4AF37]/35 bg-[#D4AF37]/10' : 'border-white/10 bg-[#171717]'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-[#F5F5F5]">{card.name}</div>
+                        <div className="mt-1 text-xs text-[#A3A3A3]">{card.description || 'No description'}</div>
+                        <div className="mt-2 text-xs text-[#8D8D8D]">
+                          {card.category}
+                          {supportsPrice(card.category) && card.price !== null ? ` · $${card.price}` : ''}
+                          {card.external_link ? ' · external link' : ''}
+                        </div>
+                      </div>
+                      {checked ? <FiCheck className="mt-1 h-4 w-4 text-[#D4AF37]" /> : <FiPlus className="mt-1 h-4 w-4 text-[#8D8D8D]" />}
+                    </div>
+                  </button>
+                );
+              }) : (
+                <div className="rounded-xl border border-white/10 bg-[#171717] p-4 text-sm text-[#A3A3A3]">
+                  No inventory items yet. Add one in <Link href="/keys/inventory/new" className="text-[#D4AF37] hover:text-[#F0C94A]">inventory</Link>.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <button onClick={() => setShowInventory(false)} className="rounded-lg bg-[#F5F5F5] px-3 py-2 text-sm font-semibold text-black">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -622,6 +1077,6 @@ function EmptyState({ title, text }: { title: string; text: string }) {
   );
 }
 
-function Badge({ text }: { text: string }) {
-  return <span className="rounded-full border border-white/10 bg-[#0A0A0F] px-3 py-1 text-xs text-[#F0F0F5]">{text}</span>;
+function Badge({ text, icon }: { text: string; icon?: ReactNode }) {
+  return <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0A0A0F] px-3 py-1 text-xs text-[#F0F0F5]">{icon}{text}</span>;
 }

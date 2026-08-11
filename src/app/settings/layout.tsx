@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { FiArrowLeft, FiLayers, FiLock, FiUser } from 'react-icons/fi';
 
 export default function SettingsLayout({
   children,
@@ -43,69 +44,69 @@ export default function SettingsLayout({
   
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen flex items-center justify-center bg-[#050508]">
+        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-t-2 border-[#D4AF37]"></div>
       </div>
     );
   }
   
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 md:py-10">
-      <div className="flex flex-col md:flex-row gap-6 md:gap-8">
-        {/* Sidebar - horizontal scroll on mobile */}
-        <div className="w-full md:w-64 flex-shrink-0">
-          <div className="bg-white rounded-lg shadow-md p-4">
-            <h2 className="text-lg md:text-xl font-semibold mb-4 md:mb-6">Settings</h2>
-            
-            {/* Mobile: horizontal tabs, Desktop: vertical list */}
-            <nav className="flex md:flex-col gap-2 md:gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0 -mx-2 px-2 md:mx-0 md:px-0">
+    <div className="mx-auto max-w-6xl px-4 py-6 md:py-10">
+      <div className="flex flex-col gap-6 md:flex-row md:gap-8">
+        <div className="w-full flex-shrink-0 md:w-72">
+          <div className="rounded-[28px] border border-white/10 bg-[#12121A] p-5 shadow-[0_24px_90px_rgba(0,0,0,0.28)]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#D4AF37]/20 bg-[#D4AF37]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#D4AF37]">
+              Settings
+            </div>
+            <h2 className="mt-4 text-2xl font-semibold text-[#F0F0F5]">Manage your account</h2>
+            <p className="mt-2 text-sm leading-6 text-[#9CA3AF]">Profile, boards, and account security all live here.</p>
+
+            <nav className="mt-6 flex gap-2 overflow-x-auto pb-2 md:flex-col md:overflow-visible md:pb-0">
               <Link 
                 href="/settings/profile"
-                className={`whitespace-nowrap px-3 py-2 rounded-md text-sm md:text-base ${
+                className={`whitespace-nowrap rounded-2xl px-4 py-3 text-sm md:text-base ${
                   isActive('/settings/profile') 
-                    ? 'bg-blue-50 text-blue-700 font-medium' 
-                    : 'text-gray-700 hover:bg-gray-50'
+                    ? 'bg-[#0A0A0F] text-[#F0F0F5] border border-[#D4AF37]/25' 
+                    : 'text-[#9CA3AF] hover:bg-white/[0.03] hover:text-[#F0F0F5]'
                 }`}
               >
-                Profile
+                <span className="inline-flex items-center gap-2"><FiUser className="h-4 w-4" /> Profile</span>
               </Link>
               
               <Link 
                 href="/settings/boards"
-                className={`whitespace-nowrap px-3 py-2 rounded-md text-sm md:text-base ${
+                className={`whitespace-nowrap rounded-2xl px-4 py-3 text-sm md:text-base ${
                   isActive('/settings/boards') 
-                    ? 'bg-blue-50 text-blue-700 font-medium' 
-                    : 'text-gray-700 hover:bg-gray-50'
+                    ? 'bg-[#0A0A0F] text-[#F0F0F5] border border-[#D4AF37]/25' 
+                    : 'text-[#9CA3AF] hover:bg-white/[0.03] hover:text-[#F0F0F5]'
                 }`}
               >
-                Boards
+                <span className="inline-flex items-center gap-2"><FiLayers className="h-4 w-4" /> Boards</span>
               </Link>
               
               <Link 
                 href="/settings/account"
-                className={`whitespace-nowrap px-3 py-2 rounded-md text-sm md:text-base ${
+                className={`whitespace-nowrap rounded-2xl px-4 py-3 text-sm md:text-base ${
                   isActive('/settings/account') 
-                    ? 'bg-blue-50 text-blue-700 font-medium' 
-                    : 'text-gray-700 hover:bg-gray-50'
+                    ? 'bg-[#0A0A0F] text-[#F0F0F5] border border-[#D4AF37]/25' 
+                    : 'text-[#9CA3AF] hover:bg-white/[0.03] hover:text-[#F0F0F5]'
                 }`}
               >
-                Account
+                <span className="inline-flex items-center gap-2"><FiLock className="h-4 w-4" /> Account</span>
               </Link>
-              
             </nav>
-            
-            <div className="hidden md:block mt-8 pt-4 border-t border-gray-200">
+
+            <div className="mt-8 border-t border-white/10 pt-4">
               <Link 
-                href="/"
-                className="text-blue-600 hover:underline text-sm"
+                href="/me"
+                className="inline-flex items-center gap-2 text-sm text-[#D4AF37] hover:text-[#F0C94A]"
               >
-                ← Back to Home
+                <FiArrowLeft className="h-4 w-4" /> Back to Me
               </Link>
             </div>
           </div>
         </div>
-        
-        {/* Main Content */}
+
         <div className="flex-1 min-w-0">
           {children}
         </div>

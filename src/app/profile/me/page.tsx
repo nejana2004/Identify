@@ -2,246 +2,313 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { signOut } from '@/lib/auth';
+import CreateBoardModal from '@/components/CreateBoardModal';
 import { supabase } from '@/lib/supabaseClient';
-import { FiBarChart2, FiClock, FiDollarSign, FiPlus, FiUsers } from 'react-icons/fi';
+import { slugify } from '@/lib/utils';
+import { FiBarChart2, FiBookmark, FiEye, FiLayers, FiLogOut, FiMessageSquare, FiMousePointer, FiPlus, FiSettings, FiUser } from 'react-icons/fi';
+
+type ProfileSummary = {
+  id: string;
+  name: string | null;
+  username: string | null;
+  email?: string | null;
+};
 
 type BoardSummary = {
   id: string;
   title: string;
   description: string | null;
   is_public: boolean;
+  slug: string | null;
+  created_at: string;
 };
 
-type ProductSummary = {
+type ThreadSummary = {
+  id: string;
+  board_id: string;
+  title: string;
+  body: string;
+  save_count: number;
+  view_count: number;
+  click_count: number;
+  upvote_count: number;
+  downvote_count: number;
+  created_at: string;
+};
+
+type CardSummary = {
   id: string;
   name: string;
-  price: number | null;
-  purchase_count: number;
+  description: string | null;
+  category: string;
+  external_link: string | null;
+  save_count: number;
   click_count: number;
+  created_at: string;
+  thread_id: string | null;
+};
+
+type NotificationSummary = {
+  id: string;
+  title: string;
+  message: string | null;
+  created_at: string;
+  is_read: boolean;
 };
 
 export default function MyProfilePage() {
-  const [displayName, setDisplayName] = useState('your account');
+  const router = useRouter();
+  const [profile, setProfile] = useState<ProfileSummary | null>(null);
   const [boards, setBoards] = useState<BoardSummary[]>([]);
-  const [products, setProducts] = useState<ProductSummary[]>([]);
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [inventory, setInventory] = useState<CardSummary[]>([]);
+  const [savedBoards, setSavedBoards] = useState<BoardSummary[]>([]);
+  const [savedThreads, setSavedThreads] = useState<ThreadSummary[]>([]);
+  const [savedCards, setSavedCards] = useState<CardSummary[]>([]);
+  const [notifications, setNotifications] = useState<NotificationSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreateBoardModal, setShowCreateBoardModal] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
-    async function loadProfile() {
+    async function loadMe() {
       setLoading(true);
+      setError(null);
+
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: auth } = await supabase.auth.getUser();
+        const user = auth.user;
         if (!user) {
-          setDisplayName('your account');
-          setBoards([]);
-          setProducts([]);
+          router.push('/auth/login');
           return;
         }
 
-        const [profileResult, boardsResult, productsResult] = await Promise.all([
-          supabase.from('users').select('name, username, email').eq('id', user.id).maybeSingle(),
-          supabase.from('boards').select('id, title, description, is_public').eq('user_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('product_cards').select('id, name, price, purchase_count, click_count').eq('creator_id', user.id).order('created_at', { ascending: false }),
+        const [profileRes, boardsRes, threadsRes, inventoryRes, notificationsRes, followedBoardsRes] = await Promise.all([
+          supabase.from('users').select('id, name, username, email').eq('id', user.id).maybeSingle(),
+          supabase.from('boards').select('id, title, description, is_public, slug, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
+          supabase.from('threads').select('id, board_id, title, body, save_count, view_count, click_count, created_at').eq('author_id', user.id).order('created_at', { ascending: false }),
+          supabase.from('product_cards').select('id, name, description, category, external_link, save_count, click_count, created_at, thread_id').eq('creator_id', user.id).is('thread_id', null).order('created_at', { ascending: false }),
+          supabase.from('notifications').select('id, title, message, created_at, is_read').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
+          supabase.from('board_followers').select('board_id').eq('user_id', user.id),
         ]);
 
-        const profile = profileResult.data;
-        setDisplayName(profile?.name || profile?.username || user.email?.split('@')[0] || 'your account');
-        setBoards((boardsResult.data || []) as BoardSummary[]);
-        setProducts((productsResult.data || []) as ProductSummary[]);
-      } catch (error) {
-        console.error('Error loading profile page:', error);
+        setProfile((profileRes.data || { id: user.id, name: null, username: user.email?.split('@')[0] || 'user', email: user.email }) as ProfileSummary);
+        setBoards((boardsRes.data || []) as BoardSummary[]);
+        setThreads(((threadsRes.data || []) as any[]).map((thread) => ({ ...thread, upvote_count: thread.upvote_count || 0, downvote_count: thread.downvote_count || 0 })) as ThreadSummary[]);
+        setInventory((inventoryRes.data || []) as CardSummary[]);
+        setNotifications((notificationsRes.data || []) as NotificationSummary[]);
+
+        const followedBoardIds = (followedBoardsRes.data || []).map((item) => item.board_id);
+        if (followedBoardIds.length > 0) {
+          const { data } = await supabase.from('boards').select('id, title, description, is_public, slug, created_at').in('id', followedBoardIds).order('created_at', { ascending: false });
+          setSavedBoards((data || []) as BoardSummary[]);
+        } else {
+          setSavedBoards([]);
+        }
+
+        try {
+          const { data: saves } = await supabase.from('content_saves').select('target_type, target_id').eq('user_id', user.id);
+          const threadIds = (saves || []).filter((item: any) => item.target_type === 'thread').map((item: any) => item.target_id);
+          const cardIds = (saves || []).filter((item: any) => item.target_type === 'card').map((item: any) => item.target_id);
+
+          if (threadIds.length > 0) {
+            const { data } = await supabase.from('threads').select('id, board_id, title, body, save_count, view_count, click_count, created_at').in('id', threadIds);
+            setSavedThreads(((data || []) as any[]).map((thread) => ({ ...thread, upvote_count: thread.upvote_count || 0, downvote_count: thread.downvote_count || 0 })) as ThreadSummary[]);
+          } else {
+            setSavedThreads([]);
+          }
+
+          if (cardIds.length > 0) {
+            const { data } = await supabase.from('product_cards').select('id, name, description, category, external_link, save_count, click_count, created_at, thread_id').in('id', cardIds);
+            setSavedCards((data || []) as CardSummary[]);
+          } else {
+            setSavedCards([]);
+          }
+        } catch {
+          setSavedThreads([]);
+          setSavedCards([]);
+        }
+      } catch (loadError: any) {
+        setError(loadError?.message || 'Failed to load account.');
       } finally {
         setLoading(false);
       }
     }
 
-    loadProfile();
-  }, []);
+    loadMe();
+  }, [router]);
 
   const metrics = useMemo(() => ({
-    boardCount: boards.length,
-    productCount: products.length,
-    payout: products.reduce((sum, product) => sum + (product.price || 0) * product.purchase_count, 0),
-    views: products.reduce((sum, product) => sum + product.click_count, 0),
-  }), [boards, products]);
+    boards: boards.length,
+    threads: threads.length,
+    cards: inventory.length,
+    views: threads.reduce((sum, thread) => sum + (thread.view_count || 0), 0),
+    clicks: threads.reduce((sum, thread) => sum + (thread.click_count || 0), 0) + inventory.reduce((sum, card) => sum + (card.click_count || 0), 0),
+    saves: threads.reduce((sum, thread) => sum + (thread.save_count || 0), 0) + inventory.reduce((sum, card) => sum + (card.save_count || 0), 0),
+  }), [boards, threads, inventory]);
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    await signOut();
+    router.push('/');
+  }
+
+  const unreadCount = notifications.filter((notification) => !notification.is_read).length;
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="grid gap-6 lg:grid-cols-[220px_1fr_260px]">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <div className="grid gap-5 lg:grid-cols-[240px_1fr_320px]">
         <aside className="space-y-2">
-          <div className="mb-4 text-xs uppercase tracking-[0.18em] text-[#6B7280]">Vault control</div>
-          <NavItem active label="Overview" />
-          <NavItem label="My Boards" />
-          <NavItem label="Inventory" />
-          <NavItem label="Threads" badge="0 new" />
-          <NavItem label="Payouts" />
-          <NavItem label="Settings" />
-
-          <div className="mt-8 border-t border-white/10 pt-6">
-            <div className="mb-3 text-xs uppercase tracking-[0.18em] text-[#6B7280]">My boards</div>
-            {boards.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-sm text-[#6B7280]">No boards yet</div>
-            ) : (
-              boards.map((board) => (
-                <div key={board.id} className="mt-2 rounded-2xl border border-white/10 bg-[#12121A] px-4 py-3 text-sm text-[#F0F0F5] first:mt-0">{board.title}</div>
-              ))
-            )}
-            <Link href="/boards" className="mt-2 block rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-sm text-[#6B7280]">+ Create New Board</Link>
-          </div>
+          <div className="mb-3 text-xs uppercase tracking-[0.18em] text-[#6B7280]">Account</div>
+          <NavItem href="/me" active icon={<FiBarChart2 className="h-4 w-4" />} label="Overview" />
+          <NavItem href="/boards" icon={<FiLayers className="h-4 w-4" />} label="Boards" />
+          <NavItem href="/keys" icon={<FiBookmark className="h-4 w-4" />} label="Inventory" />
+          <NavItem href="/notifications" icon={<FiEye className="h-4 w-4" />} label="Notifications" badge={unreadCount > 0 ? String(unreadCount) : undefined} />
+          <NavItem href="/settings/profile" icon={<FiSettings className="h-4 w-4" />} label="Settings" />
+          {profile?.username ? <NavItem href={`/profile/${encodeURIComponent(profile.username)}`} icon={<FiUser className="h-4 w-4" />} label="Public profile" /> : null}
         </aside>
 
-        <main className="space-y-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-[#F0F0F5] sm:text-4xl">Good morning, {loading ? '...' : displayName} 👋</h1>
-              <p className="mt-2 text-sm text-[#9CA3AF]">Here&apos;s how your account is performing right now</p>
-            </div>
-            <div className="flex gap-2">
-              <button className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-[#F0F0F5]">View Vault →</button>
-              <Link href="/keys/inventory/new" className="rounded-full bg-[#D4AF37] px-4 py-2 text-sm font-semibold text-[#0A0A0F]">+ Add Product</Link>
-            </div>
-          </div>
-
-          <section className="grid gap-4 md:grid-cols-3">
-            <MetricCard icon={<FiDollarSign className="h-4 w-4" />} label="GMV This Week" value={`$${metrics.payout.toFixed(0)}`} delta="Fresh start" tone="gold" />
-            <MetricCard icon={<FiBarChart2 className="h-4 w-4" />} label="Boards" value={String(metrics.boardCount)} delta="Create your first board" tone="green" />
-            <MetricCard icon={<FiClock className="h-4 w-4" />} label="Card Views" value={String(metrics.views)} delta="No old stats loaded" tone="blue" />
-          </section>
-
-          <section className="rounded-[32px] border border-white/10 bg-[#12121A] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.28)]">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#F0F0F5]">Your Boards</h2>
-              <Link href="/boards" className="text-sm font-semibold text-[#D4AF37]">+ New Board</Link>
-            </div>
-            <div className="mt-4 space-y-3">
-              {boards.length === 0 ? (
-                <div className="rounded-[24px] border border-white/10 bg-[#0A0A0F] p-4 text-sm text-[#9CA3AF]">No boards yet. Create one to start fresh.</div>
-              ) : (
-                boards.map((board) => (
-                  <div key={board.id} className="rounded-[24px] border border-white/10 bg-[#0A0A0F] p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <div className="text-lg font-semibold text-[#F0F0F5]">{board.title}</div>
-                          <span className="rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-3 py-1 text-xs font-semibold text-[#D4AF37]">{board.is_public ? 'Open' : 'Invite-only'}</span>
-                        </div>
-                        <div className="mt-1 text-sm text-[#9CA3AF]">{board.description || 'No description yet'} · 0 threads · 0 unanswered</div>
-                      </div>
-                      <div className="flex gap-4 text-sm font-semibold text-[#D4AF37]">
-                        <button>Manage</button>
-                        <button className="text-[#9CA3AF]">View Public</button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
+        <main className="space-y-5">
+          <section className="rounded-[16px] border border-white/10 bg-[#121212] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="text-sm text-[#9CA3AF]">Signed in as</div>
+                <h1 className="mt-1 text-3xl font-semibold text-[#F0F0F5]">{loading ? 'Loading...' : profile?.name || profile?.username || 'Account'}</h1>
+                <div className="mt-1 text-sm text-[#6B7280]">{profile?.email || `@${profile?.username || 'user'}`}</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setShowCreateBoardModal(true)} className="rounded-full bg-[#D4AF37] px-4 py-2 text-sm font-semibold text-black">Create board</button>
+                <Link href="/keys/inventory/new" className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-[#F0F0F5]">Add card</Link>
+                <button onClick={handleSignOut} disabled={signingOut} className="inline-flex items-center gap-2 rounded-full border border-red-400/25 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 disabled:opacity-60">
+                  <FiLogOut className="h-4 w-4" /> {signingOut ? 'Signing out...' : 'Sign out'}
+                </button>
+              </div>
             </div>
           </section>
 
-          <section className="rounded-[32px] border border-white/10 bg-[#12121A] p-6 shadow-[0_24px_90px_rgba(0,0,0,0.28)]">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#F0F0F5]">Your Inventory</h2>
-              <div className="text-sm text-[#9CA3AF]">{metrics.productCount} products · <Link href="/keys/inventory/new" className="font-semibold text-[#D4AF37]">+ Add Product</Link></div>
-            </div>
-            <div className="mt-4 divide-y divide-white/10 overflow-hidden rounded-[24px] border border-white/10">
-              {products.length === 0 ? (
-                <div className="bg-[#0A0A0F] p-4 text-sm text-[#9CA3AF]">No inventory yet. Add your first product when you&apos;re ready.</div>
-              ) : (
-                products.map((product, index) => (
-                  <div key={product.id} className="flex items-center gap-4 bg-[#0A0A0F] p-4">
-                    <div className={`flex h-11 w-11 items-center justify-center rounded-xl text-lg text-white ${index % 3 === 0 ? 'bg-[linear-gradient(135deg,#1A1860,#2A3A6E)]' : index % 3 === 1 ? 'bg-[linear-gradient(135deg,#0A1A30,#1A3A5E)]' : 'bg-[linear-gradient(135deg,#2A1A0A,#4A3A1A)]'}`}>•</div>
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold text-[#F0F0F5]">{product.name}</div>
-                      <div className="text-xs text-[#9CA3AF]">{product.purchase_count} claims · {product.click_count} clicks</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-semibold text-[#D4AF37]">{product.price ? `$${product.price}` : '$0'}</div>
-                      <div className="text-xs text-[#6B7280]">{product.purchase_count} claims</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="mt-3 text-sm font-semibold text-[#D4AF37]">+ Add New Unlock</div>
+          {error ? <div className="rounded-[12px] border border-red-400/25 bg-red-500/10 p-3 text-sm text-red-200">{error}</div> : null}
+
+          <section className="grid gap-3 md:grid-cols-4">
+            <MetricCard icon={<FiLayers className="h-4 w-4" />} label="Boards" value={String(metrics.boards)} />
+            <MetricCard icon={<FiMessageSquare className="h-4 w-4" />} label="Threads" value={String(metrics.threads)} />
+            <MetricCard icon={<FiEye className="h-4 w-4" />} label="Views" value={String(metrics.views)} />
+            <MetricCard icon={<FiMousePointer className="h-4 w-4" />} label="Clicks" value={String(metrics.clicks)} />
           </section>
+
+          <Section title="Saved boards">
+            {savedBoards.length === 0 ? <EmptyRow text="No saved boards yet." /> : savedBoards.map((board) => (
+              <ItemRow key={board.id} title={board.title} subtitle={board.description || 'Board'} href={`/b/${board.slug || slugify(board.title)}`} meta={board.is_public ? 'Public' : 'Private'} />
+            ))}
+          </Section>
+
+          <Section title="Saved threads">
+            {savedThreads.length === 0 ? <EmptyRow text="No saved threads yet." /> : savedThreads.map((thread) => (
+              <ItemRow key={thread.id} title={thread.title} subtitle={thread.body} href="/search?filter=threads" meta={`${thread.save_count} saves`} />
+            ))}
+          </Section>
+
+          <Section title="Saved cards">
+            {savedCards.length === 0 ? <EmptyRow text="No saved cards yet." /> : savedCards.map((card) => (
+              <ItemRow key={card.id} title={card.name} subtitle={card.description || 'Saved recommendation'} href={card.external_link || '/search?filter=cards'} meta={`${card.save_count} saves · ${card.click_count} clicks`} external={!!card.external_link} />
+            ))}
+          </Section>
+
+          <Section title="Your boards">
+            {boards.length === 0 ? <EmptyRow text="No boards created yet." /> : boards.map((board) => (
+              <ItemRow key={board.id} title={board.title} subtitle={board.description || 'No description yet.'} href={`/b/${board.slug || slugify(board.title)}`} meta={board.is_public ? 'Public' : 'Private'} actionHref={`/boards/${board.id}/edit`} actionLabel="Manage" />
+            ))}
+          </Section>
         </main>
 
         <aside className="space-y-4">
-          <section className="rounded-[32px] border border-[#D4AF37]/20 bg-[linear-gradient(135deg,rgba(18,18,26,1),rgba(212,175,55,0.08))] p-6">
-            <div className="text-xs uppercase tracking-[0.24em] text-[#D4AF37]">Available payout</div>
-            <div className="mt-3 text-4xl font-semibold text-[#F0F0F5]">${metrics.payout.toFixed(2)}</div>
-            <p className="mt-2 text-sm text-[#9CA3AF]">From your current inventory</p>
-            <button className="mt-5 w-full rounded-2xl bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F]">Transfer to bank →</button>
-            <p className="mt-3 text-center text-xs text-[#6B7280]">Usually arrives in 1–2 days</p>
-          </section>
+          <Section title="Signals" compact>
+            <StatRow label="Views" value={String(metrics.views)} />
+            <StatRow label="Clicks" value={String(metrics.clicks)} />
+            <StatRow label="Saves" value={String(metrics.saves)} />
+            <StatRow label="Cards" value={String(metrics.cards)} />
+          </Section>
 
-          <section className="rounded-[32px] border border-white/10 bg-[#12121A] p-6">
-            <div className="text-lg font-semibold text-[#F0F0F5]">Recent Activity</div>
-            <div className="mt-4 space-y-3 border-t border-white/10 pt-4 text-sm text-[#C7CAD1]">
-              <Activity text="No recent activity yet" time="now" dot="bg-[#D4AF37]" />
-              <Activity text="Invite someone to start activity" time="now" dot="bg-[#3B82F6]" />
-              <Activity text="Create a board to see updates here" time="now" dot="bg-[#10B981]" />
-              <Activity text="Add a product to see claims" time="now" dot="bg-[#D4AF37]" />
-            </div>
-          </section>
-
-          <section className="rounded-[32px] border border-white/10 bg-[#12121A] p-6">
-            <div className="text-xs uppercase tracking-[0.24em] text-[#D4AF37]">Vault health</div>
-            <div className="mt-4 space-y-3 text-sm">
-              <StatRow label="Boards" value={String(metrics.boardCount)} valueClassName="text-[#10B981]" />
-              <StatRow label="Products" value={String(metrics.productCount)} valueClassName="text-[#F0F0F5]" />
-              <StatRow label="Clicks" value={String(metrics.views)} valueClassName="text-[#D4AF37]" />
-            </div>
-          </section>
+          <Section title="Recent activity" compact>
+            {notifications.length === 0 ? <EmptyRow text="No recent activity yet." /> : notifications.map((notification) => (
+              <div key={notification.id} className="rounded-[12px] border border-white/10 bg-[#171717] p-3">
+                <div className="text-sm text-[#F0F0F5]">{notification.title}</div>
+                <div className="mt-1 text-xs text-[#8D8D8D]">{notification.message || 'New account activity'}</div>
+                <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#6B7280]">{formatTime(notification.created_at)}</div>
+              </div>
+            ))}
+          </Section>
         </aside>
       </div>
+
+      <CreateBoardModal open={showCreateBoardModal} onClose={() => setShowCreateBoardModal(false)} />
     </div>
   );
 }
 
-function NavItem({ label, active = false, badge }: { label: string; active?: boolean; badge?: string }) {
+function NavItem({ href, label, icon, active = false, badge }: { href: string; label: string; icon: React.ReactNode; active?: boolean; badge?: string }) {
   return (
-    <div className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm ${active ? 'bg-[#12121A] text-[#F0F0F5]' : 'text-[#9CA3AF]'}`}>
-      <span>{label}</span>
+    <Link href={href} className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm ${active ? 'bg-[#12121A] text-[#F0F0F5]' : 'text-[#9CA3AF] hover:bg-[#12121A] hover:text-[#F0F0F5]'}`}>
+      <span className="flex items-center gap-2">{icon}{label}</span>
       {badge ? <span className="rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-2 py-1 text-[10px] font-semibold text-[#D4AF37]">{badge}</span> : null}
-    </div>
+    </Link>
   );
 }
 
-function MetricCard({ icon, label, value, delta, tone }: { icon: React.ReactNode; label: string; value: string; delta: string; tone: 'gold' | 'green' | 'blue' }) {
-  const accents = {
-    gold: 'border-t-[#D4AF37]',
-    green: 'border-t-[#10B981]',
-    blue: 'border-t-[#3B82F6]',
-  };
-
+function MetricCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className={`rounded-[24px] border border-white/10 border-t-2 ${accents[tone]} bg-[#0A0A0F] p-5`}>
-      <div className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/10 text-[#D4AF37]">{icon}</div>
-      <div className="mt-4 text-3xl font-semibold text-[#F0F0F5]">{value}</div>
+    <div className="rounded-[14px] border border-white/10 bg-[#0B0B0B] p-4">
+      <div className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/10 text-[#D4AF37]">{icon}</div>
+      <div className="mt-3 text-3xl font-semibold text-[#F0F0F5]">{value}</div>
       <div className="mt-1 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">{label}</div>
-      <div className={`mt-2 text-sm ${tone === 'gold' ? 'text-[#D4AF37]' : tone === 'green' ? 'text-[#10B981]' : 'text-[#3B82F6]'}`}>{delta}</div>
     </div>
   );
 }
 
-function Activity({ text, time, dot }: { text: string; time: string; dot: string }) {
+function Section({ title, children, compact = false }: { title: string; children: React.ReactNode; compact?: boolean }) {
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4">
-      <span className={`mt-2 h-2.5 w-2.5 rounded-full ${dot}`} />
-      <div className="flex-1">
-        <div>{text}</div>
+    <section className={`rounded-[16px] border border-white/10 bg-[#121212] ${compact ? 'p-4' : 'p-5'}`}>
+      <div className="mb-3 text-lg font-semibold text-[#F0F0F5]">{title}</div>
+      <div className="space-y-2">{children}</div>
+    </section>
+  );
+}
+
+function ItemRow({ title, subtitle, href, meta, actionHref, actionLabel, external = false }: { title: string; subtitle: string; href: string; meta: string; actionHref?: string; actionLabel?: string; external?: boolean }) {
+  return (
+    <div className="rounded-[12px] border border-white/10 bg-[#0B0B0B] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Link href={href} target={external ? '_blank' : undefined} className="text-base font-semibold text-[#F0F0F5] hover:text-[#D4AF37]">{title}</Link>
+          <div className="mt-1 text-sm text-[#8D8D8D]">{subtitle}</div>
+          <div className="mt-2 text-xs text-[#6B7280]">{meta}</div>
+        </div>
+        {actionHref && actionLabel ? <Link href={actionHref} className="rounded-full border border-white/10 bg-[#171717] px-3 py-1.5 text-xs text-[#D7D7D7]">{actionLabel}</Link> : null}
       </div>
-      <div className="text-xs text-[#6B7280]">{time}</div>
     </div>
   );
 }
 
-function StatRow({ label, value, valueClassName }: { label: string; value: string; valueClassName: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-white/10 pb-3 last:border-b-0 last:pb-0">
-      <span className="text-[#9CA3AF]">{label}</span>
-      <span className={`font-semibold ${valueClassName}`}>{value}</span>
-    </div>
-  );
+function StatRow({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-center justify-between border-b border-white/10 pb-3 last:border-0 last:pb-0"><span className="text-[#9CA3AF]">{label}</span><span className="font-semibold text-[#F0F0F5]">{value}</span></div>;
+}
+
+function EmptyRow({ text }: { text: string }) {
+  return <div className="rounded-[12px] border border-white/10 bg-[#0B0B0B] p-4 text-sm text-[#9CA3AF]">{text}</div>;
+}
+
+function formatTime(dateString: string) {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
 }

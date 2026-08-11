@@ -1,62 +1,83 @@
 "use client";
 
-import { useState, useEffect, use } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { useRouter } from 'next/navigation';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import { FiArrowLeft, FiCheck, FiEye, FiImage, FiSave, FiTrash2 } from 'react-icons/fi';
+import { supabase } from '@/lib/supabaseClient';
+import { slugify } from '@/lib/utils';
+
+type BoardRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  is_public: boolean;
+  board_type: string;
+  topic_tags: string[] | null;
+  cover_image: string | null;
+  slug: string | null;
+};
 
 export default function EditBoardPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const router = useRouter();
-  
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  
+
+  const [board, setBoard] = useState<BoardRow | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
+  const [boardType, setBoardType] = useState<'open' | 'invite-only' | 'paid'>('open');
+  const [topicTags, setTopicTags] = useState('');
   const [coverImage, setCoverImage] = useState<string | null>(null);
-  
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     async function loadBoard() {
+      setLoading(true);
+      setError('');
+
       try {
-        // Check authentication
-        const { data: { user } } = await supabase.auth.getUser();
-        
+        const { data: authData } = await supabase.auth.getUser();
+        const user = authData.user;
+
         if (!user) {
           router.push('/auth/login');
           return;
         }
 
-        // Load board
-        const { data: board, error: boardError } = await supabase
+        const { data, error: boardError } = await supabase
           .from('boards')
-          .select('*')
+          .select('id, user_id, title, description, is_public, board_type, topic_tags, cover_image, slug')
           .eq('id', resolvedParams.id)
           .single();
 
-        if (boardError) throw boardError;
+        if (boardError || !data) {
+          throw boardError || new Error('Board not found.');
+        }
 
-        // Check ownership
-        if (board.user_id !== user.id) {
-          router.push(`/boards/${resolvedParams.id}`);
+        if (data.user_id !== user.id) {
+          router.push(`/b/${data.slug || slugify(data.title)}`);
           return;
         }
 
-        setTitle(board.title);
-        setDescription(board.description || '');
-        setIsPublic(board.is_public);
-        setCoverImage(board.cover_image || null);
-      } catch (err: any) {
-        console.error('Error loading board:', err);
-        setError('Failed to load board');
+        setBoard(data as BoardRow);
+        setTitle(data.title || '');
+        setDescription(data.description || '');
+        setIsPublic(Boolean(data.is_public));
+        setBoardType((data.board_type as 'open' | 'invite-only' | 'paid') || 'open');
+        setTopicTags((data.topic_tags || []).join(', '));
+        setCoverImage(data.cover_image || null);
+      } catch (loadError: any) {
+        setError(loadError?.message || 'Failed to load board.');
       } finally {
         setLoading(false);
       }
@@ -65,19 +86,14 @@ export default function EditBoardPage({ params }: { params: Promise<{ id: string
     loadBoard();
   }, [resolvedParams.id, router]);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
+  async function uploadCoverImage(file: File) {
+    if (!board) return;
     if (!file.type.startsWith('image/')) {
-      setError('Please select an image file');
+      setError('Please upload an image file.');
       return;
     }
-
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      setError('Image must be less than 5MB');
+      setError('Cover image must be below 5MB.');
       return;
     }
 
@@ -85,320 +101,265 @@ export default function EditBoardPage({ params }: { params: Promise<{ id: string
     setError('');
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `${board.id}/cover-${Date.now()}.${ext}`;
 
-      // Create unique filename
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${resolvedParams.id}/${Date.now()}.${fileExt}`;
-
-      // Upload to Supabase Storage (boards bucket)
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('boards')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
+        .upload(path, file, { cacheControl: '3600', upsert: true });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        throw uploadError;
+      }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('boards')
-        .getPublicUrl(fileName);
-
-      setCoverImage(publicUrl);
-      setSuccess('Cover image uploaded!');
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      console.error('Error uploading image:', err);
-      setError(err.message || 'Failed to upload image');
+      const { data } = supabase.storage.from('boards').getPublicUrl(path);
+      setCoverImage(data.publicUrl);
+      setSuccess('Cover image updated.');
+    } catch (uploadErr: any) {
+      setError(uploadErr?.message || 'Failed to upload cover image.');
     } finally {
       setUploadingImage(false);
     }
-  };
+  }
 
-  const handleRemoveImage = () => {
-    setCoverImage(null);
-  };
-
-  const handleSave = async () => {
+  async function saveBoard() {
+    if (!board) return;
     if (!title.trim()) {
-      setError('Board title is required');
+      setError('Board title is required.');
       return;
     }
 
     setSaving(true);
     setError('');
+    setSuccess('');
 
     try {
+      const normalizedTags = topicTags
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 8);
+
+      const nextSlug = slugify(title.trim());
+
       const { error: updateError } = await supabase
         .from('boards')
         .update({
           title: title.trim(),
           description: description.trim() || null,
           is_public: isPublic,
-          cover_image: coverImage
+          board_type: boardType,
+          topic_tags: normalizedTags.length > 0 ? normalizedTags : null,
+          cover_image: coverImage,
+          slug: nextSlug,
+          updated_at: new Date().toISOString(),
         })
-        .eq('id', resolvedParams.id);
+        .eq('id', board.id)
+        .eq('user_id', board.user_id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        throw updateError;
+      }
 
-      setSuccess('Board updated successfully!');
-      setTimeout(() => {
-        router.push(`/boards/${resolvedParams.id}`);
-      }, 1500);
-    } catch (err: any) {
-      console.error('Error updating board:', err);
-      setError(err.message || 'Failed to update board');
+      setSuccess('Board saved.');
+      setTimeout(() => router.push(`/b/${nextSlug}`), 550);
+    } catch (saveError: any) {
+      setError(saveError?.message || 'Failed to save board.');
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const handleDelete = async () => {
+  async function deleteBoard() {
+    if (!board) return;
+    if (!window.confirm('Delete this board and all thread data?')) return;
+
     setDeleting(true);
     setError('');
 
     try {
-      // First delete all pins in this board
-      const { error: pinsError } = await supabase
-        .from('pins')
-        .delete()
-        .eq('board_id', resolvedParams.id);
-
-      if (pinsError) throw pinsError;
-
-      // Then delete the board
-      const { error: boardError } = await supabase
+      const { error: deleteError } = await supabase
         .from('boards')
         .delete()
-        .eq('id', resolvedParams.id);
+        .eq('id', board.id)
+        .eq('user_id', board.user_id);
 
-      if (boardError) throw boardError;
+      if (deleteError) {
+        throw deleteError;
+      }
 
-      // Redirect to boards list
       router.push('/boards');
-    } catch (err: any) {
-      console.error('Error deleting board:', err);
-      setError(err.message || 'Failed to delete board');
+    } catch (deleteErr: any) {
+      setError(deleteErr?.message || 'Failed to delete board.');
       setDeleting(false);
     }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
   }
 
+  if (loading) {
+    return <div className="mx-auto max-w-5xl px-4 py-10 text-sm text-[#9CA3AF]">Loading board editor...</div>;
+  }
+
+  if (!board) {
+    return <div className="mx-auto max-w-5xl px-4 py-10 text-sm text-red-300">Board unavailable.</div>;
+  }
+
+  const canonicalHref = `/b/${board.slug || slugify(board.title)}`;
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <Link 
-            href={`/boards/${resolvedParams.id}`} 
-            className="text-blue-600 hover:underline flex items-center mb-4"
-          >
-            ← Back to Board
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-8 sm:px-6 lg:px-8">
+      <Link href={canonicalHref} className="inline-flex items-center gap-2 text-sm text-[#9CA3AF] hover:text-[#F0F0F5]">
+        <FiArrowLeft className="h-4 w-4" /> Back to board
+      </Link>
+
+      <div className="rounded-[18px] border border-white/10 bg-[#0E0E0E] p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <h1 className="text-2xl font-semibold text-[#F5F5F5]">Edit board</h1>
+            <p className="mt-1 text-sm text-[#8D8D8D]">Tighter, Reddit-style board settings with one clear save flow.</p>
+          </div>
+          <Link href={canonicalHref} className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-[#1A1A1A] px-3 py-1.5 text-xs text-[#D8D8D8]">
+            <FiEye className="h-3.5 w-3.5" /> Preview board
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900">Edit Board</h1>
         </div>
 
-        {/* Form */}
-        <div className="bg-white rounded-lg shadow-sm p-6 space-y-6">
-          {error && (
-            <div className="bg-red-50 text-red-600 p-4 rounded-lg">
-              {error}
-            </div>
-          )}
+        {error ? <div className="mt-4 rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div> : null}
+        {success ? <div className="mt-4 rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">{success}</div> : null}
 
-          {success && (
-            <div className="bg-green-50 text-green-600 p-4 rounded-lg flex items-center">
-              <span className="mr-2">✓</span>
-              {success}
+        <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="space-y-4">
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Board title</label>
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none placeholder:text-[#6B7280]"
+                placeholder="Board title"
+              />
             </div>
-          )}
 
-          {/* Cover Image */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Cover Image
-            </label>
-            <div className="space-y-4">
-              {coverImage ? (
-                <div className="relative">
-                  <div className="aspect-video relative rounded-lg overflow-hidden bg-gray-100">
-                    <Image
-                      src={coverImage}
-                      alt="Board cover"
-                      fill
-                      className="object-cover"
-                      unoptimized
-                    />
-                  </div>
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Description</label>
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                className="min-h-[120px] w-full rounded-xl border border-white/10 bg-[#161616] px-3 py-3 text-sm leading-6 text-[#F5F5F5] outline-none placeholder:text-[#6B7280]"
+                placeholder="What this board is for"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Topics (comma separated)</label>
+              <input
+                value={topicTags}
+                onChange={(event) => setTopicTags(event.target.value)}
+                className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none placeholder:text-[#6B7280]"
+                placeholder="design, tooling, services"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Visibility</label>
+                <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-[#121212] p-1">
                   <button
-                    onClick={handleRemoveImage}
-                    className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600 shadow-lg"
-                    title="Remove image"
+                    type="button"
+                    onClick={() => setIsPublic(true)}
+                    className={`rounded-lg px-3 py-2 text-sm ${isPublic ? 'bg-[#F5F5F5] text-black' : 'text-[#B9B9B9]'}`}
                   >
-                    ✕
+                    Public
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsPublic(false)}
+                    className={`rounded-lg px-3 py-2 text-sm ${!isPublic ? 'bg-[#F5F5F5] text-black' : 'text-[#B9B9B9]'}`}
+                  >
+                    Private
                   </button>
                 </div>
-              ) : (
-                <div className="aspect-video bg-gradient-to-br from-gray-200 to-gray-300 rounded-lg flex items-center justify-center">
-                  <span className="text-gray-500">No cover image</span>
-                </div>
-              )}
-              
+              </div>
+
               <div>
-                <label className="cursor-pointer inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Board mode</label>
+                <select
+                  value={boardType}
+                  onChange={(event) => setBoardType(event.target.value as 'open' | 'invite-only' | 'paid')}
+                  className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none"
+                >
+                  <option value="open">Open</option>
+                  <option value="invite-only">Invite only</option>
+                  <option value="paid">Paid</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-xl border border-white/10 bg-[#121212] p-3">
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Cover image</div>
+              <div className="relative aspect-video overflow-hidden rounded-lg border border-white/10 bg-[#1B1B1B]">
+                {coverImage ? (
+                  <Image src={coverImage} alt="Board cover" fill className="object-cover" unoptimized />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-[#707070]">No cover</div>
+                )}
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-white/15 bg-[#1A1A1A] px-3 py-2 text-sm text-[#EAEAEA]">
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={handleImageUpload}
                     className="hidden"
                     disabled={uploadingImage}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        uploadCoverImage(file);
+                      }
+                    }}
                   />
-                  {uploadingImage ? (
-                    <>
-                      <span className="animate-spin mr-2">⏳</span>
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      📷 {coverImage ? 'Change Image' : 'Upload Image'}
-                    </>
-                  )}
+                  <FiImage className="h-4 w-4" />
+                  {uploadingImage ? 'Uploading...' : 'Upload'}
                 </label>
-                <p className="text-xs text-gray-500 mt-1">Max 5MB. JPG, PNG, or GIF.</p>
+
+                {coverImage ? (
+                  <button
+                    type="button"
+                    onClick={() => setCoverImage(null)}
+                    className="rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+                  >
+                    Remove
+                  </button>
+                ) : null}
               </div>
             </div>
-          </div>
 
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Board Title *
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter board title"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              maxLength={100}
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe your board (optional)"
-              rows={3}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-              maxLength={500}
-            />
-            <p className="text-xs text-gray-500 mt-1">{description.length}/500</p>
-          </div>
-
-          {/* Visibility */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Visibility
-            </label>
-            <div className="flex space-x-4">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="radio"
-                  name="visibility"
-                  checked={isPublic}
-                  onChange={() => setIsPublic(true)}
-                  className="mr-2"
-                />
-                <span className="text-gray-700">🌐 Public</span>
-              </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="radio"
-                  name="visibility"
-                  checked={!isPublic}
-                  onChange={() => setIsPublic(false)}
-                  className="mr-2"
-                />
-                <span className="text-gray-700">🔒 Private</span>
-              </label>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              {isPublic ? 'Anyone can view this board' : 'Only you can view this board'}
-            </p>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center justify-between pt-4 border-t">
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="text-red-600 hover:text-red-800 font-medium"
-              disabled={deleting}
-            >
-              🗑️ Delete Board
-            </button>
-            
-            <div className="flex space-x-3">
-              <Link
-                href={`/boards/${resolvedParams.id}`}
-                className="px-4 py-2 text-gray-700 hover:text-gray-900"
-              >
-                Cancel
-              </Link>
-              <button
-                onClick={handleSave}
-                disabled={saving || !title.trim()}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
+            <div className="rounded-xl border border-white/10 bg-[#121212] p-3 text-xs text-[#8D8D8D]">
+              Save updates to keep the board slug, discoverability, and posting rules aligned.
             </div>
           </div>
         </div>
 
-        {/* Delete Confirmation Modal */}
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg max-w-md w-full p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">Delete Board?</h2>
-              <p className="text-gray-600 mb-6">
-                Are you sure you want to delete this board? This will also remove all pins in this board. 
-                This action cannot be undone.
-              </p>
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-4 py-2 text-gray-700 hover:text-gray-900"
-                  disabled={deleting}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-                >
-                  {deleting ? 'Deleting...' : 'Yes, Delete Board'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
+          <button
+            type="button"
+            onClick={deleteBoard}
+            disabled={deleting}
+            className="inline-flex items-center gap-2 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200 disabled:opacity-60"
+          >
+            <FiTrash2 className="h-4 w-4" /> {deleting ? 'Deleting...' : 'Delete board'}
+          </button>
+
+          <button
+            type="button"
+            onClick={saveBoard}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#F5F5F5] px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+          >
+            {saving ? 'Saving...' : 'Save changes'} {saving ? <FiSave className="h-4 w-4" /> : <FiCheck className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AuthButton from './AuthButton';
+import CreateBoardModal from './CreateBoardModal';
 import { supabase } from '@/lib/supabaseClient';
 import { FiBell, FiPlusCircle } from 'react-icons/fi';
 
@@ -12,6 +13,7 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showCreateBoardModal, setShowCreateBoardModal] = useState(false);
 
   const navItems = [
     { href: '/discover', label: 'Discover' },
@@ -93,7 +95,11 @@ export default function Header() {
           {/* Right side: Notifications + Auth + Mobile menu button */}
           <div className="flex items-center gap-2 sm:gap-3">
             <Link
-              href="/boards"
+              href="#"
+              onClick={(event) => {
+                event.preventDefault();
+                setShowCreateBoardModal(true);
+              }}
               className="hidden items-center gap-2 rounded-full border border-[#D4AF37]/30 bg-[#12121A] px-4 py-2 text-sm font-medium text-[#F0F0F5] transition hover:border-[#D4AF37] hover:bg-[#1A1A24] md:flex"
             >
               <FiPlusCircle className="h-4 w-4 text-[#D4AF37]" />
@@ -180,9 +186,13 @@ export default function Header() {
                   )}
                 </Link>
                 <Link 
-                  href="/boards" 
+                  href="#" 
                   className="flex items-center gap-2 rounded-lg px-3 py-3 text-base font-medium text-[#F0F0F5] hover:bg-white/5"
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setMobileMenuOpen(false);
+                    setShowCreateBoardModal(true);
+                  }}
                 >
                   <FiPlusCircle className="h-5 w-5" />
                   Start a board
@@ -192,6 +202,8 @@ export default function Header() {
           </div>
         </div>
       )}
+
+      <CreateBoardModal open={showCreateBoardModal} onClose={() => setShowCreateBoardModal(false)} />
     </header>
   );
 }
