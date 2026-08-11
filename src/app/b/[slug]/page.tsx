@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { getSavesForUser, getVotesForUser, incrementCardClick, setVoteForTarget, toggleSaveForTarget } from '@/lib/engagement';
 import { supabase } from '@/lib/supabaseClient';
 import { slugify } from '@/lib/utils';
-import { FiArrowRight, FiBookmark, FiCheck, FiChevronDown, FiChevronUp, FiEdit2, FiGlobe, FiLock, FiLogOut, FiMessageCircle, FiPlus, FiShare2, FiShield, FiTrash2, FiUserPlus, FiUsers, FiX } from 'react-icons/fi';
+import { FiArrowRight, FiBookmark, FiCheck, FiChevronDown, FiChevronUp, FiEdit2, FiGlobe, FiLock, FiLogOut, FiMessageCircle, FiPlus, FiShare2, FiTrash2, FiUserPlus, FiUsers, FiX } from 'react-icons/fi';
 
 type BoardRow = {
   id: string;
@@ -45,15 +45,6 @@ type ThreadRow = {
   reply_count?: number;
   created_at: string;
   author_id: string;
-};
-
-type ReplyRow = {
-  id: string;
-  body: string;
-  created_at: string;
-  author_id: string;
-  parent_reply_id: string | null;
-  reply_level: number;
 };
 
 type ProductCardRow = {
@@ -98,7 +89,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
   const { slug } = use(params);
   const router = useRouter();
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [board, setBoard] = useState<BoardRow | null>(null);
   const [owner, setOwner] = useState<OwnerRow | null>(null);
   const [threads, setThreads] = useState<ThreadRow[]>([]);
@@ -162,7 +153,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
         setOwner(ownerResult.data || null);
         setBoardSaveCount((followerResult.data || []).length);
 
-        const formattedThreads = ((threadResult.data || []) as any[]).map((thread) => ({
+        const formattedThreads = ((threadResult.data || []) as Array<ThreadRow & { upvote_count?: number; downvote_count?: number; vote_score?: number }>).map((thread) => ({
           ...thread,
           upvote_count: thread.upvote_count || 0,
           downvote_count: thread.downvote_count || 0,
@@ -242,8 +233,8 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
           setSavedThreads({});
           setSavedCards({});
         }
-      } catch (boardError: any) {
-        setError(boardError?.message || 'Failed to load board.');
+      } catch (boardError: unknown) {
+        setError(boardError instanceof Error ? boardError.message : 'Failed to load board.');
       } finally {
         setLoading(false);
       }
@@ -297,7 +288,18 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       }
 
       const selectedCards = inventoryCards.filter((card) => selectedCardIds.includes(card.id));
-      const newCards: any[] = [];
+      const newCards: Array<{
+        creator_id: string;
+        thread_id: string;
+        name: string;
+        description: string | null;
+        price: number | null;
+        category: string;
+        image_url: string | null;
+        file_url: string | null;
+        external_link: string | null;
+        verified_owner: boolean;
+      }> = [];
       if (selectedCards.length > 0) {
         const duplicateCards = selectedCards.map((card) => ({
           creator_id: user.id,
@@ -349,7 +351,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       setExternalCardLink('');
       setShowInventory(false);
 
-      const nextThread = { ...(threadData as any), upvote_count: 0, downvote_count: 0, vote_score: 0 } as ThreadRow;
+      const nextThread = { ...(threadData as ThreadRow), upvote_count: 0, downvote_count: 0, vote_score: 0 } as ThreadRow;
       setThreads((current) => [nextThread, ...current]);
       if (newCards.length > 0) {
         const { data: freshCards } = await supabase
@@ -378,8 +380,8 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
           thread_id: threadData.id,
         });
       }
-    } catch (postError: any) {
-      setError(postError?.message || 'Failed to publish thread.');
+    } catch (postError: unknown) {
+      setError(postError instanceof Error ? postError.message : 'Failed to publish thread.');
     } finally {
       setPosting(false);
     }
@@ -460,8 +462,8 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       }
 
       setIsMember(true);
-    } catch (membershipError: any) {
-      setError(membershipError?.message || 'Unable to update board membership.');
+    } catch (membershipError: unknown) {
+      setError(membershipError instanceof Error ? membershipError.message : 'Unable to update board membership.');
     } finally {
       setJoining(false);
     }
@@ -503,8 +505,8 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
         downvote_count: result.downvoteCount,
         vote_score: result.voteScore,
       } : thread));
-    } catch (voteError: any) {
-      setError(voteError?.message || 'Unable to vote on thread.');
+    } catch (voteError: unknown) {
+      setError(voteError instanceof Error ? voteError.message : 'Unable to vote on thread.');
     }
   }
 
@@ -518,8 +520,8 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       const result = await toggleSaveForTarget(user.id, 'thread', threadId);
       setSavedThreads((current) => ({ ...current, [threadId]: result.saved }));
       setThreads((current) => current.map((thread) => thread.id === threadId ? { ...thread, save_count: result.saveCount } : thread));
-    } catch (saveError: any) {
-      setError(saveError?.message || 'Unable to save thread.');
+    } catch (saveError: unknown) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save thread.');
     }
   }
 
@@ -545,8 +547,8 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
         threadId,
         cards.map((card) => card.id === cardId ? { ...card, save_count: result.saveCount } : card),
       ])));
-    } catch (saveError: any) {
-      setError(saveError?.message || 'Unable to save card.');
+    } catch (saveError: unknown) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save card.');
     }
   }
 
@@ -588,7 +590,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       return;
     }
 
-    setThreads((current) => current.map((item) => item.id === thread.id ? ({ ...(data as any), upvote_count: item.upvote_count || 0, downvote_count: item.downvote_count || 0, vote_score: item.vote_score || 0 } as ThreadRow) : item));
+    setThreads((current) => current.map((item) => item.id === thread.id ? ({ ...(data as ThreadRow), upvote_count: item.upvote_count || 0, downvote_count: item.downvote_count || 0, vote_score: item.vote_score || 0 } as ThreadRow) : item));
   }
 
   async function deleteThread(thread: ThreadRow) {
@@ -689,26 +691,26 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
 
   return (
     <Shell>
-      <div className="overflow-hidden rounded-[32px] border border-white/10 bg-[#12121A] shadow-[0_24px_90px_rgba(0,0,0,0.28)]">
-        <div className="min-h-[180px] bg-[linear-gradient(135deg,rgba(212,175,55,0.22),rgba(18,18,26,0.94)),radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_25%)] p-6 sm:p-8">
-          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.24em] text-[#D4AF37]">
+      <div className="overflow-hidden rounded-[24px] border border-white/10 bg-[#12121A] shadow-[0_24px_90px_rgba(0,0,0,0.28)] sm:rounded-[32px]">
+        <div className="bg-[linear-gradient(135deg,rgba(212,175,55,0.22),rgba(18,18,26,0.94)),radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_25%)] p-4 sm:p-6 lg:p-8">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-[#D4AF37]">
             {stateIcon}
             {stateLabel}
           </div>
 
-          <div className="mt-6 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#D4AF37] bg-black/30 text-2xl font-semibold text-[#D4AF37]">
+          <div className="mt-4 flex flex-col gap-4 sm:mt-6 sm:gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl space-y-3 sm:space-y-4">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#D4AF37] bg-black/30 text-xl font-semibold text-[#D4AF37] sm:h-16 sm:w-16 sm:text-2xl">
                   {title[0]}
                 </div>
                 <div>
-                  <h1 className="text-4xl font-semibold tracking-tight text-[#F0F0F5] sm:text-5xl">{title}</h1>
-                  <p className="mt-2 text-sm text-[#9CA3AF]">@{ownerName} · {board.topic_tags?.[0] || 'Knowledge board'} · Verified</p>
+                  <h1 className="text-2xl font-semibold tracking-tight text-[#F0F0F5] sm:text-3xl lg:text-4xl">{title}</h1>
+                  <p className="mt-1 text-sm text-[#9CA3AF] sm:mt-2">@{ownerName} · {board.topic_tags?.[0] || 'Knowledge board'} · Verified</p>
                 </div>
               </div>
 
-              <p className="max-w-2xl text-sm leading-7 text-[#C7CAD1]">
+              <p className="max-w-2xl text-sm leading-6 text-[#C7CAD1] sm:leading-7">
                 {board.description || 'A searchable board for questions, answers, reviews, and recommendations that stay useful over time.'}
               </p>
 
@@ -734,11 +736,11 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                 </>
               )}
               {board.board_type === 'paid' ? (
-                <Link href={`/checkout?product=board-access&title=${encodeURIComponent(title)}&price=${encodeURIComponent(String(board.access_price || 9))}`} className="inline-flex items-center justify-center rounded-full bg-[#D4AF37] px-5 py-3 text-sm font-semibold text-[#0A0A0F]">
+                <Link href={`/checkout?product=board-access&title=${encodeURIComponent(title)}&price=${encodeURIComponent(String(board.access_price || 9))}`} className="inline-flex items-center justify-center rounded-full bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F] sm:px-5">
                   Subscribe ${board.access_price || 9}/month
                 </Link>
               ) : (
-                <button onClick={toggleBoardMembership} disabled={joining || hasPendingRequest} className="inline-flex items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-5 py-3 text-sm font-semibold text-[#0A0A0F] disabled:opacity-60">
+                <button onClick={toggleBoardMembership} disabled={joining || hasPendingRequest} className="inline-flex items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-4 py-3 text-sm font-semibold text-[#0A0A0F] disabled:opacity-60 sm:px-5">
                   {isMember ? <FiLogOut className="h-4 w-4" /> : board.board_type === 'invite-only' ? <FiUserPlus className="h-4 w-4" /> : <FiUsers className="h-4 w-4" />}
                   {isMember ? 'Leave' : hasPendingRequest ? 'Pending' : board.board_type === 'invite-only' ? 'Request access' : 'Join'}
                 </button>
@@ -753,7 +755,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
           </div>
         </div>
 
-        <div className="border-t border-white/10 bg-[#0A0A0F] p-6">
+        <div className="border-t border-white/10 bg-[#0A0A0F] p-4 sm:p-6">
           {!canPost && (
             <div className="mb-6 rounded-[28px] border border-white/10 bg-[#1A1A24] p-5 text-sm leading-7 text-[#9CA3AF]">
               Posting is limited here until you join this board. The rest of the board remains searchable and readable.
@@ -763,34 +765,34 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
           <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="space-y-4">
               {threads.length > 0 ? threads.map((thread) => (
-                <article key={thread.id} className={`rounded-[14px] border border-white/10 bg-[#121212] p-4 ${thread.is_pinned ? 'border-l-4 border-l-[#D4AF37]' : ''}`}>
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
+                <article key={thread.id} className={`rounded-[18px] border border-white/10 bg-[#121212] p-3 sm:p-4 ${thread.is_pinned ? 'border-l-4 border-l-[#D4AF37]' : ''}`}>
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[#9CA3AF]">
                     <FiMessageCircle className="h-4 w-4 text-[#D4AF37]" />
                     {thread.thread_type}
                     {thread.is_pinned && <span className="rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-2 py-0.5 text-[#D4AF37]">Pinned</span>}
                   </div>
-                  <h2 className="mt-3 text-2xl font-semibold text-[#F0F0F5]">{thread.title}</h2>
-                  <p className="mt-2 text-sm leading-7 text-[#9CA3AF]">{thread.body}</p>
+                  <h2 className="mt-2 text-xl font-semibold text-[#F0F0F5] sm:text-2xl">{thread.title}</h2>
+                  <p className="mt-2 text-sm leading-6 text-[#9CA3AF] sm:leading-7">{thread.body}</p>
                   {threadCards[thread.id]?.length ? (
-                    <div className="mt-4 grid gap-3">
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       {threadCards[thread.id].slice(0, 3).map((card) => (
-                        <div key={card.id} className="rounded-2xl border border-white/10 bg-[#0A0A0F] p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <div className="text-base font-semibold text-[#F0F0F5]">{card.name}</div>
+                        <div key={card.id} className="rounded-2xl border border-white/10 bg-[#0A0A0F] p-3 sm:p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-[#F0F0F5]">{card.name}</div>
                               <div className="mt-1 text-sm leading-6 text-[#9CA3AF]">{card.description || 'Recommendation card attached to this thread.'}</div>
                               <div className="mt-2 flex flex-wrap gap-2 text-xs text-[#9CA3AF]">
-                                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">{card.category}</span>
-                                {supportsPrice(card.category) && card.price !== null ? <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">${card.price}</span> : null}
-                                <span className="rounded-full border border-[#10B981]/20 bg-[#10B981]/10 px-3 py-1 text-[#10B981]">{card.verified_owner ? 'Verified owner' : 'External'}</span>
+                                <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">{card.category}</span>
+                                {supportsPrice(card.category) && card.price !== null ? <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1">${card.price}</span> : null}
+                                <span className="rounded-full border border-[#10B981]/20 bg-[#10B981]/10 px-2.5 py-1 text-[#10B981]">{card.verified_owner ? 'Verified owner' : 'External'}</span>
                               </div>
                             </div>
-                            <Link onClick={() => void handleCardOpen(card)} href={cardTarget(card)} target={cardTarget(card).startsWith('http') ? '_blank' : undefined} className="inline-flex items-center gap-1 rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-4 py-2 text-sm font-semibold text-[#D4AF37]">
+                            <Link onClick={() => void handleCardOpen(card)} href={cardTarget(card)} target={cardTarget(card).startsWith('http') ? '_blank' : undefined} className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#D4AF37]/25 bg-[#D4AF37]/10 px-3 py-2 text-sm font-semibold text-[#D4AF37]">
                               Open
                               <FiArrowRight className="h-4 w-4" />
                             </Link>
                           </div>
-                            <div className="mt-3 flex gap-2">
+                            <div className="mt-3 flex flex-wrap gap-2">
                               <button onClick={() => handleCardSave(card.id)} className={`rounded-full border px-3 py-1 text-xs ${savedCards[card.id] ? 'border-[#D4AF37]/35 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/20 bg-white/[0.03] text-[#F0F0F5]'}`}>Save</button>
                               {user?.id === card.creator_id && (
                                 <>
@@ -803,13 +805,13 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                       ))}
                     </div>
                   ) : null}
-                  <div className="mt-4 flex flex-wrap gap-2 text-xs text-[#9CA3AF]">
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-[#9CA3AF]">
                     <Badge text={`${replyCounts[thread.id] || 0}`} icon={<FiMessageCircle className="h-3.5 w-3.5" />} />
                     <Badge text={`${thread.vote_score || 0}`} icon={<FiChevronUp className="h-3.5 w-3.5" />} />
                     <Badge text={`${thread.save_count}`} icon={<FiCheck className="h-3.5 w-3.5" />} />
                     <Badge text={`${thread.view_count}`} icon={<FiGlobe className="h-3.5 w-3.5" />} />
                   </div>
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button onClick={() => handleThreadVote(thread.id, 1)} title="Upvote" className={`inline-flex h-10 w-10 items-center justify-center rounded-full border ${threadVotes[thread.id] === 1 ? 'border-[#D4AF37]/40 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/10 bg-white/[0.03] text-[#F0F0F5]'}`}>
                       <FiChevronUp className="h-4 w-4" />
                     </button>
@@ -881,11 +883,11 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                 </div>
               </section>
 
-              <div className="rounded-[14px] border border-white/10 bg-[#121212] p-4 shadow-[0_24px_90px_rgba(0,0,0,0.24)]">
+              <div className="rounded-[18px] border border-white/10 bg-[#121212] p-3 shadow-[0_24px_90px_rgba(0,0,0,0.24)] sm:p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.22em] text-[#D4AF37]">Composer</div>
-                    <div className="mt-2 text-xl font-semibold text-[#F0F0F5]">Start a thread</div>
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-[#D4AF37]">Composer</div>
+                    <div className="mt-2 text-lg font-semibold text-[#F0F0F5] sm:text-xl">Start a thread</div>
                   </div>
                 </div>
 
@@ -901,11 +903,11 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                     value={composerBody}
                     onChange={(event) => setComposerBody(event.target.value)}
                     placeholder="Write a question, answer, review, or recommendation..."
-                    className="min-h-[150px] rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-sm leading-7 text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                    className="min-h-[120px] rounded-2xl border border-white/10 bg-[#0A0A0F] px-4 py-3 text-sm leading-6 text-[#F0F0F5] outline-none placeholder:text-[#6B7280] sm:min-h-[150px] sm:leading-7"
                     disabled={!canPost}
                   />
 
-                  <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
+                  <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.18em] text-[#9CA3AF]">
                     {(['question', 'answer', 'review', 'recommendation'] as const).map((type) => (
                       <button
                         key={type}
@@ -918,10 +920,10 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                     ))}
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <button
                       onClick={() => setShowInventory((current) => !current)}
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-[#F0F0F5]"
+                      className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-[#F0F0F5]"
                       disabled={!canPost}
                     >
                       <FiPlus className="h-4 w-4 text-[#D4AF37]" />
@@ -1061,7 +1063,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
 }
 
 function Shell({ children }: { children: ReactNode }) {
-  return <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</div>;
+  return <div className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">{children}</div>;
 }
 
 function LoadingPanel() {
