@@ -14,14 +14,14 @@ BEGIN
   final_username := base_username;
   
   -- Check if username already exists and add number if needed
-  WHILE EXISTS (SELECT 1 FROM public.users WHERE username = final_username AND id != NEW.id::text) LOOP
+  WHILE EXISTS (SELECT 1 FROM public.users WHERE username = final_username AND id != NEW.id) LOOP
     counter := counter + 1;
     final_username := base_username || counter::text;
   END LOOP;
 
   INSERT INTO public.users (id, username, name, email, created_at, pin_count, view_count, board_count)
   VALUES (
-    NEW.id::text,
+    NEW.id,
     final_username,
     COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
     NEW.email,
@@ -44,39 +44,15 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION public.handle_user_delete()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Delete user's pins first (to avoid foreign key issues)
-  BEGIN
-    DELETE FROM public.pins WHERE user_id = OLD.id::text;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'Could not delete pins by user_id: %', SQLERRM;
-  END;
-  
-  BEGIN
-    DELETE FROM public.pins WHERE profile_id = OLD.id::text;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'Could not delete pins by profile_id: %', SQLERRM;
-  END;
-  
-  -- Delete user's boards
-  BEGIN
-    DELETE FROM public.boards WHERE user_id = OLD.id::text;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'Could not delete boards: %', SQLERRM;
-  END;
-  
-  -- Delete user's links
-  BEGIN
-    DELETE FROM public.user_links WHERE user_id = OLD.id::text;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'Could not delete user_links: %', SQLERRM;
-  END;
-  
-  -- Finally delete the user record
-  BEGIN
-    DELETE FROM public.users WHERE id = OLD.id::text;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'Could not delete user: %', SQLERRM;
-  END;
+  -- Remove profile rows first so legacy FK variants cannot block auth deletion.
+  IF to_regclass('public.profiles') IS NOT NULL THEN
+    DELETE FROM public.profiles WHERE id = OLD.id;
+  END IF;
+
+  -- Deleting public.users cascades through boards and related content.
+  IF to_regclass('public.users') IS NOT NULL THEN
+    DELETE FROM public.users WHERE id = OLD.id;
+  END IF;
   
   RETURN OLD;
 END;

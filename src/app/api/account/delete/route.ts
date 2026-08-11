@@ -51,30 +51,10 @@ export async function DELETE(request: NextRequest) {
     
     const userId = user.id;
     console.log('Deleting account for user:', userId);
-    
-    // Delete user's data from public tables first (ignore errors for tables that might not have data)
-    // 1. Delete user's boards
-    const { error: boardsError } = await supabaseAdmin
-      .from('boards')
-      .delete()
-      .eq('user_id', userId);
-    if (boardsError) console.log('Boards delete:', boardsError.message);
-    
-    // 2. Delete user's links
-    const { error: linksError } = await supabaseAdmin
-      .from('user_links')
-      .delete()
-      .eq('user_id', userId);
-    if (linksError) console.log('Links delete:', linksError.message);
-    
-    // 3. Delete user from public.users table
-    const { error: usersError } = await supabaseAdmin
-      .from('users')
-      .delete()
-      .eq('id', userId);
-    if (usersError) console.log('Users delete:', usersError.message);
-    
-    // 4. Finally delete the auth user
+
+    // Auth delete triggers DB cleanup, which removes the public user row and
+    // cascades through boards, threads, cards, memberships, follows, and
+    // related content used by search/discovery screens.
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
     
     if (deleteError) {
@@ -88,10 +68,10 @@ export async function DELETE(request: NextRequest) {
     console.log('Account deleted successfully:', userId);
     return NextResponse.json({ success: true });
     
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Delete account error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to delete account' },
+      { error: error instanceof Error ? error.message : 'Failed to delete account' },
       { status: 500 }
     );
   }
