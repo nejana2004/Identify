@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { FiX } from 'react-icons/fi';
 
 export default function SimpleModal({
@@ -18,9 +19,17 @@ export default function SimpleModal({
   onClose: () => void;
   maxWidth?: string;
 }) {
-  if (!open) return null;
+  // Ancestors with backdrop-blur/transform (e.g. the sticky header) create a containing
+  // block for fixed-position elements, trapping the modal instead of covering the viewport.
+  // Portaling to document.body sidesteps that regardless of where this modal is rendered.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
+  if (!open || !mounted) return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto bg-black/70 p-4 sm:items-center">
       <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Close modal" />
       <div className={`relative flex max-h-[85vh] w-full ${maxWidth} flex-col rounded-[18px] border border-white/10 bg-[#111111] shadow-[0_24px_90px_rgba(0,0,0,0.45)]`}>
@@ -36,6 +45,7 @@ export default function SimpleModal({
 
         <div className="overflow-y-auto p-5 pt-4">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
