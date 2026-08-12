@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import type { IconType } from 'react-icons';
 import Link from 'next/link';
 import CreateBoardModal from '@/components/CreateBoardModal';
 import { supabase } from '@/lib/supabaseClient';
@@ -125,14 +126,14 @@ export default function BoardsPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-[#F0F0F5] sm:text-3xl lg:text-4xl">Create topic boards for knowledge, products, places, and services.</h1>
           <p className="max-w-2xl text-sm leading-6 text-[#9CA3AF] sm:text-base sm:leading-7">Keep the content simple: a board header, threaded posts, attachable cards, and trust signals that help people decide what to save or follow.</p>
           <div className="grid gap-3 md:grid-cols-3">
-            {[
+            {([
               ['Boards', 'Topic hubs with public or invite-only access', FiHash],
               ['Posts', 'Questions, answers, reviews, and recommendations', FiMessageCircle],
               ['Trust', 'Followers, saves, clicks, and verified owner badges', FiShield],
-            ].map(([label, text, Icon]) => {
-              const BoardIcon = Icon as React.ComponentType<{ className?: string }>;
+            ] as Array<[string, string, IconType]>).map(([label, text, Icon]) => {
+              const BoardIcon = Icon;
               return (
-                <div key={label as string} className="rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4">
+                <div key={label} className="rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4">
                   <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#D4AF37]/25 bg-[#D4AF37]/10 text-[#D4AF37]"><BoardIcon className="h-4 w-4" /></div>
                   <div className="mt-3 text-sm font-semibold text-[#F0F0F5]">{label}</div>
                   <p className="mt-1 text-sm leading-6 text-[#9CA3AF]">{text}</p>

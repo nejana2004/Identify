@@ -64,9 +64,10 @@ export async function setVoteForTarget(userId: string, targetType: VoteTargetTyp
     throw new Error('Target not found.');
   }
 
-  let upvoteCount = target[config.upvoteField] || 0;
-  let downvoteCount = target[config.downvoteField] || 0;
-  let voteScore = target[config.scoreField] || 0;
+  const targetRecord = target as unknown as Record<string, number | null | undefined>;
+  let upvoteCount = Number(targetRecord[config.upvoteField] ?? 0);
+  let downvoteCount = Number(targetRecord[config.downvoteField] ?? 0);
+  let voteScore = Number(targetRecord[config.scoreField] ?? 0);
 
   if (existing?.vote_value === nextValue) {
     await supabase.from('content_votes').delete().eq('id', existing.id);
@@ -138,7 +139,8 @@ export async function toggleSaveForTarget(userId: string, targetType: SaveTarget
     throw new Error('Target not found.');
   }
 
-  let saveCount = target[config.saveField] || 0;
+  const targetRecord = target as unknown as Record<string, number | null | undefined>;
+  let saveCount = Number(targetRecord[config.saveField] ?? 0);
   let saved = false;
 
   if (existing) {

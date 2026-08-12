@@ -125,7 +125,16 @@ export default function OnboardingPage() {
             </div>
           </aside>
 
-          <form onSubmit={handleSubmit} className="space-y-6 p-6 sm:p-8">
+          <form
+            onSubmit={handleSubmit}
+            onKeyDown={(event) => {
+              // Prevent Enter in a text field from silently submitting before the user confirms on step 3.
+              if (event.key === 'Enter' && (event.target as HTMLElement).tagName !== 'TEXTAREA') {
+                event.preventDefault();
+              }
+            }}
+            className="space-y-6 p-6 sm:p-8"
+          >
             {step === 1 && (
               <div className="space-y-4">
                 <StepTitle eyebrow="Step 1" title="Who are you?" subtitle="Pick one to get started. You can do everything later." icon={<FiUser className="h-5 w-5" />} />

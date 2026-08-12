@@ -369,7 +369,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       setReplyCounts((current) => ({ ...current, [nextThread.id]: 0 }));
 
       if (board.user_id !== user.id) {
-        const actor = user.user_metadata?.name || user.user_metadata?.username || user.email || 'Someone';
+        const actor = (user as any)?.user_metadata?.name || (user as any)?.user_metadata?.username || (user as any)?.email || 'Someone';
         await supabase.from('notifications').insert({
           user_id: board.user_id,
           type: newCards.length > 0 ? 'card_attached' : 'thread_created',
@@ -444,7 +444,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
         return;
       }
 
-      const actorName = user.user_metadata?.name || user.user_metadata?.username || user.email || 'Someone';
+      const actorName = (user as any)?.user_metadata?.name || (user as any)?.user_metadata?.username || (user as any)?.email || 'Someone';
 
       const { error: memberError } = await supabase.from('board_members').upsert({ board_id: board.id, user_id: user.id, role: 'member' }, { onConflict: 'board_id,user_id' });
 
