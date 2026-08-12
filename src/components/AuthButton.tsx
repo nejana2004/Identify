@@ -80,7 +80,7 @@ export default function AuthButton() {
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-blue-100 text-blue-500 text-sm font-bold">
-              {(profile?.name || profile?.username || user.email)?.charAt(0).toUpperCase()}
+              {(profile?.name || profile?.username || 'U').charAt(0).toUpperCase()}
             </div>
           )}
         </div>
@@ -90,7 +90,7 @@ export default function AuthButton() {
             {profile?.name || profile?.username || 'User'}
           </div>
           <div className="text-xs text-[#6B7280]">
-            @{profile?.username || 'username'}
+            @{profile?.username || 'member'}
           </div>
         </div>
     </Link>

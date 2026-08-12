@@ -459,11 +459,33 @@ CREATE POLICY "Users can manage own content saves" ON public.content_saves
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
+  username_candidate TEXT;
   base_username TEXT;
   final_username TEXT;
+  safe_name TEXT;
+  fallback_suffix TEXT;
   counter INT := 0;
 BEGIN
-  base_username := COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1));
+  fallback_suffix := substring(replace(NEW.id::text, '-', '') from 1 for 8);
+
+  username_candidate := COALESCE(
+    NULLIF(trim(NEW.raw_user_meta_data->>'username'), ''),
+    NULLIF(trim(NEW.raw_user_meta_data->>'preferred_username'), '')
+  );
+
+  IF username_candidate IS NULL
+     OR username_candidate LIKE '%@%'
+     OR lower(username_candidate) = lower(split_part(COALESCE(NEW.email, ''), '@', 1)) THEN
+    username_candidate := 'member_' || fallback_suffix;
+  END IF;
+
+  base_username := lower(regexp_replace(username_candidate, '[^a-zA-Z0-9_]+', '_', 'g'));
+  base_username := trim(both '_' from base_username);
+
+  IF base_username = '' THEN
+    base_username := 'member_' || fallback_suffix;
+  END IF;
+
   final_username := base_username;
 
   WHILE EXISTS (SELECT 1 FROM public.users WHERE username = final_username AND id <> NEW.id) LOOP
@@ -471,11 +493,16 @@ BEGIN
     final_username := base_username || counter::text;
   END LOOP;
 
+  safe_name := COALESCE(NULLIF(trim(NEW.raw_user_meta_data->>'name'), ''), NULLIF(trim(NEW.raw_user_meta_data->>'full_name'), ''));
+  IF safe_name IS NULL OR safe_name LIKE '%@%' OR lower(safe_name) = lower(split_part(COALESCE(NEW.email, ''), '@', 1)) THEN
+    safe_name := 'Member';
+  END IF;
+
   INSERT INTO public.users (id, username, name, email, created_at, updated_at)
   VALUES (
     NEW.id,
     final_username,
-    COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+    safe_name,
     NEW.email,
     COALESCE(NEW.created_at, NOW()),
     NOW()

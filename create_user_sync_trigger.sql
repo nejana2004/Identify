@@ -10,16 +10,18 @@ DECLARE
   final_username TEXT;
   fallback_suffix TEXT;
   counter INT := 0;
+  safe_name TEXT;
 BEGIN
   fallback_suffix := substring(replace(NEW.id::text, '-', '') from 1 for 8);
 
   username_candidate := COALESCE(
     NULLIF(trim(NEW.raw_user_meta_data->>'username'), ''),
-    NULLIF(trim(NEW.raw_user_meta_data->>'preferred_username'), ''),
-    ''
+    NULLIF(trim(NEW.raw_user_meta_data->>'preferred_username'), '')
   );
 
-  IF username_candidate = '' OR position('@' in username_candidate) > 0 THEN
+  IF username_candidate IS NULL
+     OR username_candidate LIKE '%@%'
+     OR lower(username_candidate) = lower(split_part(COALESCE(NEW.email, ''), '@', 1)) THEN
     username_candidate := 'member_' || fallback_suffix;
   END IF;
 
@@ -31,33 +33,34 @@ BEGIN
   END IF;
 
   final_username := base_username;
-  
-  -- Check if username already exists and add number if needed
+
   WHILE EXISTS (SELECT 1 FROM public.users WHERE username = final_username AND id != NEW.id) LOOP
     counter := counter + 1;
     final_username := base_username || counter::text;
   END LOOP;
 
+  safe_name := COALESCE(NULLIF(trim(NEW.raw_user_meta_data->>'name'), ''), NULLIF(trim(NEW.raw_user_meta_data->>'full_name'), ''));
+  IF safe_name IS NULL OR safe_name LIKE '%@%' OR lower(safe_name) = lower(split_part(COALESCE(NEW.email, ''), '@', 1)) THEN
+    safe_name := 'Member';
+  END IF;
+
   INSERT INTO public.users (id, username, name, email, created_at, pin_count, view_count, board_count)
   VALUES (
     NEW.id,
     final_username,
-    CASE
-      WHEN COALESCE(NULLIF(trim(NEW.raw_user_meta_data->>'name'), ''), NULLIF(trim(NEW.raw_user_meta_data->>'full_name'), ''), '') = '' THEN 'Member'
-      WHEN position('@' in COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name', '')) > 0 THEN 'Member'
-      ELSE COALESCE(NULLIF(trim(NEW.raw_user_meta_data->>'name'), ''), NULLIF(trim(NEW.raw_user_meta_data->>'full_name'), ''))
-    END,
+    safe_name,
     NEW.email,
     NEW.created_at,
     0, 0, 0
   )
   ON CONFLICT (id) DO UPDATE SET
+    username = EXCLUDED.username,
+    name = EXCLUDED.name,
     email = EXCLUDED.email,
     updated_at = NOW();
-  
+
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  -- Log error but don't fail the auth signup
   RAISE WARNING 'Error in handle_new_user: %', SQLERRM;
   RETURN NEW;
 END;

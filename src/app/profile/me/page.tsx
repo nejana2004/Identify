@@ -95,7 +95,7 @@ export default function MyProfilePage() {
           supabase.from('board_followers').select('board_id').eq('user_id', user.id),
         ]);
 
-        setProfile((profileRes.data || { id: user.id, name: null, username: user.email?.split('@')[0] || 'user', email: user.email }) as ProfileSummary);
+        setProfile((profileRes.data || { id: user.id, name: null, username: 'member', email: user.email }) as ProfileSummary);
         setBoards((boardsRes.data || []) as BoardSummary[]);
         setThreads(((threadsRes.data || []) as any[]).map((thread) => ({ ...thread, upvote_count: thread.upvote_count || 0, downvote_count: thread.downvote_count || 0 })) as ThreadSummary[]);
         setInventory((inventoryRes.data || []) as CardSummary[]);
