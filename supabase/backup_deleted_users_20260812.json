@@ -1,0 +1,47 @@
+{
+  "exportedAt": "2026-08-12T03:01:19.443Z",
+  "tables": {
+    "users": {
+      "count": 0,
+      "rows": []
+    },
+    "profiles": {
+      "count": 0,
+      "rows": []
+    },
+    "boards": {
+      "count": 0,
+      "rows": []
+    },
+    "board_members": {
+      "count": 0,
+      "rows": []
+    },
+    "board_followers": {
+      "count": 0,
+      "rows": []
+    },
+    "threads": {
+      "count": 0,
+      "rows": []
+    },
+    "thread_replies": {
+      "count": 0,
+      "rows": []
+    },
+    "notifications": {
+      "count": 0,
+      "rows": []
+    },
+    "content_saves": {
+      "error": "permission denied for table content_saves",
+      "count": 0,
+      "rows": []
+    },
+    "user_links": {
+      "count": 0,
+      "rows": []
+    }
+  },
+  "authUsers": []
+}

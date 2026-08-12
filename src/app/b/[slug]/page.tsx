@@ -7,6 +7,7 @@ import { getSavesForUser, getVotesForUser, incrementCardClick, setVoteForTarget,
 import { supabase } from '@/lib/supabaseClient';
 import { slugify } from '@/lib/utils';
 import { FiArrowRight, FiBookmark, FiCheck, FiChevronDown, FiChevronUp, FiEdit2, FiGlobe, FiLock, FiLogOut, FiMessageCircle, FiPlus, FiShare2, FiTrash2, FiUserPlus, FiUsers, FiX } from 'react-icons/fi';
+import SimpleModal from '@/components/SimpleModal';
 
 type BoardRow = {
   id: string;
@@ -115,6 +116,20 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
   const [threadVotes, setThreadVotes] = useState<Record<string, number>>({});
   const [savedThreads, setSavedThreads] = useState<Record<string, boolean>>({});
   const [savedCards, setSavedCards] = useState<Record<string, boolean>>({});
+  const [editingBoard, setEditingBoard] = useState<BoardRow | null>(null);
+  const [boardDraftTitle, setBoardDraftTitle] = useState('');
+  const [boardDraftDescription, setBoardDraftDescription] = useState('');
+  const [boardDraftTags, setBoardDraftTags] = useState('');
+  const [editingThread, setEditingThread] = useState<ThreadRow | null>(null);
+  const [threadDraftTitle, setThreadDraftTitle] = useState('');
+  const [threadDraftBody, setThreadDraftBody] = useState('');
+  const [threadDraftType, setThreadDraftType] = useState<'question' | 'answer' | 'review' | 'recommendation'>('question');
+  const [editingCard, setEditingCard] = useState<{ card: ProductCardRow; threadId: string } | null>(null);
+  const [cardDraftName, setCardDraftName] = useState('');
+  const [cardDraftDescription, setCardDraftDescription] = useState('');
+  const [cardDraftExternalLink, setCardDraftExternalLink] = useState('');
+  const [cardDraftPrice, setCardDraftPrice] = useState('');
+  const [cardDraftCategory, setCardDraftCategory] = useState('product');
 
   useEffect(() => {
     async function loadBoard() {
@@ -369,7 +384,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       setReplyCounts((current) => ({ ...current, [nextThread.id]: 0 }));
 
       if (board.user_id !== user.id) {
-        const actor = user.user_metadata?.name || user.user_metadata?.username || user.email || 'Someone';
+        const actor = (user as any)?.user_metadata?.name || (user as any)?.user_metadata?.username || (user as any)?.email || 'Someone';
         await supabase.from('notifications').insert({
           user_id: board.user_id,
           type: newCards.length > 0 ? 'card_attached' : 'thread_created',
@@ -444,7 +459,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
         return;
       }
 
-      const actorName = user.user_metadata?.name || user.user_metadata?.username || user.email || 'Someone';
+      const actorName = (user as any)?.user_metadata?.name || (user as any)?.user_metadata?.username || (user as any)?.email || 'Someone';
 
       const { error: memberError } = await supabase.from('board_members').upsert({ board_id: board.id, user_id: user.id, role: 'member' }, { onConflict: 'board_id,user_id' });
 
@@ -570,17 +585,81 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
     router.push('/boards');
   }
 
-  async function editThread(thread: ThreadRow) {
+  function openBoardEditor() {
+    if (!board || !user || board.user_id !== user.id) return;
+    setEditingBoard(board);
+    setBoardDraftTitle(board.title);
+    setBoardDraftDescription(board.description || '');
+    setBoardDraftTags((board.topic_tags || []).join(', '));
+  }
+
+  async function saveBoardEditor() {
+    if (!editingBoard || !user || editingBoard.user_id !== user.id) return;
+
+    const nextTitle = boardDraftTitle.trim();
+    if (!nextTitle) {
+      setError('Board title is required.');
+      return;
+    }
+
+    const normalizedTags = boardDraftTags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+
+    const nextSlug = slugify(nextTitle);
+    const { data, error: updateError } = await supabase
+      .from('boards')
+      .update({
+        title: nextTitle,
+        description: boardDraftDescription.trim() || null,
+        topic_tags: normalizedTags.length > 0 ? normalizedTags : null,
+        slug: nextSlug,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editingBoard.id)
+      .eq('user_id', user.id)
+      .select('id, title, description, is_public, board_type, access_price, invite_code, topic_tags, created_at, cover_image, user_id, slug')
+      .single();
+
+    if (updateError || !data) {
+      setError(updateError?.message || 'Failed to update board.');
+      return;
+    }
+
+    setBoard((current) => current ? { ...current, ...data } : current);
+    setEditingBoard(null);
+    router.push(`/b/${nextSlug}`);
+  }
+
+  function openThreadEditor(thread: ThreadRow) {
     if (!user || thread.author_id !== user.id) return;
-    const nextTitle = window.prompt('Edit thread title', thread.title);
-    if (!nextTitle) return;
-    const nextBody = window.prompt('Edit thread body', thread.body);
-    if (!nextBody) return;
+    setEditingThread(thread);
+    setThreadDraftTitle(thread.title);
+    setThreadDraftBody(thread.body);
+    setThreadDraftType((thread.thread_type as 'question' | 'answer' | 'review' | 'recommendation') || 'question');
+  }
+
+  async function saveThreadEditor() {
+    if (!editingThread || !user || editingThread.author_id !== user.id) return;
+
+    const nextTitle = threadDraftTitle.trim();
+    const nextBody = threadDraftBody.trim();
+    if (!nextTitle || !nextBody) {
+      setError('Thread title and body are required.');
+      return;
+    }
 
     const { data, error: updateError } = await supabase
       .from('threads')
-      .update({ title: nextTitle.trim(), body: nextBody.trim(), updated_at: new Date().toISOString() })
-      .eq('id', thread.id)
+      .update({
+        title: nextTitle,
+        body: nextBody,
+        thread_type: threadDraftType,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editingThread.id)
       .eq('author_id', user.id)
       .select('id, title, body, thread_type, is_pinned, is_solved, save_count, click_count, view_count, created_at, author_id')
       .single();
@@ -590,7 +669,9 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
       return;
     }
 
-    setThreads((current) => current.map((item) => item.id === thread.id ? ({ ...(data as ThreadRow), upvote_count: item.upvote_count || 0, downvote_count: item.downvote_count || 0, vote_score: item.vote_score || 0 } as ThreadRow) : item));
+    setThreads((current) => current.map((item) => item.id === editingThread.id ? ({ ...(data as ThreadRow), upvote_count: item.upvote_count || 0, downvote_count: item.downvote_count || 0, vote_score: item.vote_score || 0 } as ThreadRow) : item));
+    setEditingThread(null);
+    router.push(`/b/${boardSlug}/t/${slugify(nextTitle)}`);
   }
 
   async function deleteThread(thread: ThreadRow) {
@@ -616,17 +697,30 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
     });
   }
 
-  async function editCard(card: ProductCardRow, threadId: string) {
+  function openCardEditor(card: ProductCardRow, threadId: string) {
     if (!user || card.creator_id !== user.id) return;
-    const nextName = window.prompt('Card name', card.name);
-    if (!nextName) return;
-    const nextDescription = window.prompt('Card description', card.description || '') ?? '';
-    const nextExternal = window.prompt('External link', card.external_link || '') ?? '';
-    const acceptsPrice = card.category === 'product' || card.category === 'service';
-    const nextPriceRaw = acceptsPrice ? window.prompt('Price (optional)', card.price?.toString() || '') ?? '' : '';
-    const nextPrice = acceptsPrice && nextPriceRaw.trim() ? Number(nextPriceRaw) : null;
+    setEditingCard({ card, threadId });
+    setCardDraftName(card.name);
+    setCardDraftDescription(card.description || '');
+    setCardDraftExternalLink(card.external_link || '');
+    setCardDraftPrice(card.price !== null && card.price !== undefined ? String(card.price) : '');
+    setCardDraftCategory(card.category || 'product');
+  }
 
-    if (acceptsPrice && nextPriceRaw.trim() && Number.isNaN(nextPrice)) {
+  async function saveCardEditor() {
+    if (!editingCard || !user || editingCard.card.creator_id !== user.id) return;
+
+    const nextName = cardDraftName.trim();
+    if (!nextName) {
+      setError('Card name is required.');
+      return;
+    }
+
+    const acceptsPrice = cardDraftCategory === 'product' || cardDraftCategory === 'service';
+    const nextPriceRaw = cardDraftPrice.trim();
+    const nextPrice = acceptsPrice && nextPriceRaw ? Number(nextPriceRaw) : null;
+
+    if (acceptsPrice && nextPriceRaw && Number.isNaN(nextPrice)) {
       setError('Price must be a valid number.');
       return;
     }
@@ -634,13 +728,14 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
     const { data, error: updateError } = await supabase
       .from('product_cards')
       .update({
-        name: nextName.trim(),
-        description: nextDescription.trim() || null,
-        external_link: nextExternal.trim() || null,
+        name: nextName,
+        description: cardDraftDescription.trim() || null,
+        category: cardDraftCategory,
+        external_link: cardDraftExternalLink.trim() || null,
         price: nextPrice,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', card.id)
+      .eq('id', editingCard.card.id)
       .eq('creator_id', user.id)
       .select('id, name, description, price, category, image_url, file_url, external_link, verified_owner, save_count, click_count, purchase_count, usage_count, created_at, thread_id, creator_id')
       .single();
@@ -652,8 +747,9 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
 
     setThreadCards((current) => ({
       ...current,
-      [threadId]: (current[threadId] || []).map((item) => item.id === card.id ? (data as ProductCardRow) : item),
+      [editingCard.threadId]: (current[editingCard.threadId] || []).map((item) => item.id === editingCard.card.id ? (data as ProductCardRow) : item),
     }));
+    setEditingCard(null);
   }
 
   async function deleteCard(card: ProductCardRow, threadId: string) {
@@ -727,9 +823,9 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
             <div className="flex flex-wrap items-center gap-2">
               {user?.id === board.user_id && (
                 <>
-                  <Link href={`/boards/${board.id}/edit`} title="Edit board" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-[#F0F0F5]">
+                  <button type="button" onClick={openBoardEditor} title="Edit board" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-[#F0F0F5]">
                     <FiEdit2 className="h-4 w-4" />
-                  </Link>
+                  </button>
                   <button onClick={removeBoard} title="Delete board" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-red-400/30 bg-red-400/10 text-red-300">
                     <FiTrash2 className="h-4 w-4" />
                   </button>
@@ -796,7 +892,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                               <button onClick={() => handleCardSave(card.id)} className={`rounded-full border px-3 py-1 text-xs ${savedCards[card.id] ? 'border-[#D4AF37]/35 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/20 bg-white/[0.03] text-[#F0F0F5]'}`}>Save</button>
                               {user?.id === card.creator_id && (
                                 <>
-                                  <button onClick={() => editCard(card, thread.id)} className="rounded-full border border-white/20 bg-white/[0.03] px-3 py-1 text-xs text-[#F0F0F5]">Edit</button>
+                                  <button onClick={() => openCardEditor(card, thread.id)} className="rounded-full border border-white/20 bg-white/[0.03] px-3 py-1 text-xs text-[#F0F0F5]">Edit</button>
                                   <button onClick={() => deleteCard(card, thread.id)} className="rounded-full border border-red-400/30 bg-red-400/10 px-3 py-1 text-xs text-red-300">Delete</button>
                                 </>
                               )}
@@ -827,7 +923,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                     </Link>
                     {user?.id === thread.author_id && (
                       <>
-                        <button onClick={() => editThread(thread)} title="Edit thread" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/[0.03] text-[#F0F0F5]">
+                        <button onClick={() => openThreadEditor(thread)} title="Edit thread" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/[0.03] text-[#F0F0F5]">
                           <FiEdit2 className="h-4 w-4" />
                         </button>
                         <button onClick={() => deleteThread(thread)} title="Delete thread" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-red-400/30 bg-red-400/10 text-red-300">
@@ -1000,6 +1096,90 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
           </div>
         </div>
       </div>
+
+      <SimpleModal open={!!editingBoard} title="Edit board" description="Update the board title, description, and topics." onClose={() => setEditingBoard(null)} maxWidth="max-w-2xl">
+        <div className="space-y-4">
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Board title</label>
+            <input value={boardDraftTitle} onChange={(event) => setBoardDraftTitle(event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none" placeholder="Board title" />
+          </div>
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Description</label>
+            <textarea value={boardDraftDescription} onChange={(event) => setBoardDraftDescription(event.target.value)} className="min-h-[110px] w-full rounded-xl border border-white/10 bg-[#161616] px-3 py-3 text-sm text-[#F5F5F5] outline-none" placeholder="What is this board for?" />
+          </div>
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Topics (comma separated)</label>
+            <input value={boardDraftTags} onChange={(event) => setBoardDraftTags(event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none" placeholder="design, tools, reviews" />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setEditingBoard(null)} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-[#F0F0F5]">Cancel</button>
+            <button type="button" onClick={saveBoardEditor} className="rounded-full bg-[#D4AF37] px-4 py-2 text-sm font-semibold text-[#0A0A0F]">Save</button>
+          </div>
+        </div>
+      </SimpleModal>
+
+      <SimpleModal open={!!editingThread} title="Edit thread" description="Update the thread title, topic, and body." onClose={() => setEditingThread(null)} maxWidth="max-w-2xl">
+        <div className="space-y-4">
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Thread type</label>
+            <div className="flex flex-wrap gap-2">
+              {(['question', 'answer', 'review', 'recommendation'] as const).map((type) => (
+                <button key={type} type="button" onClick={() => setThreadDraftType(type)} className={`rounded-full px-3 py-1.5 text-xs uppercase tracking-[0.14em] ${threadDraftType === type ? 'bg-[#D4AF37] text-[#0A0A0F]' : 'border border-white/10 bg-[#161616] text-[#F0F0F5]'}`}>
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Title</label>
+            <input value={threadDraftTitle} onChange={(event) => setThreadDraftTitle(event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none" placeholder="Thread title" />
+          </div>
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Body</label>
+            <textarea value={threadDraftBody} onChange={(event) => setThreadDraftBody(event.target.value)} className="min-h-[140px] w-full rounded-xl border border-white/10 bg-[#161616] px-3 py-3 text-sm text-[#F5F5F5] outline-none" placeholder="What would you like to share?" />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setEditingThread(null)} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-[#F0F0F5]">Cancel</button>
+            <button type="button" onClick={saveThreadEditor} className="rounded-full bg-[#D4AF37] px-4 py-2 text-sm font-semibold text-[#0A0A0F]">Save thread</button>
+          </div>
+        </div>
+      </SimpleModal>
+
+      <SimpleModal open={!!editingCard} title="Edit card" description="Update the recommendation card content and links." onClose={() => setEditingCard(null)} maxWidth="max-w-xl">
+        <div className="space-y-4">
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Card category</label>
+            <select value={cardDraftCategory} onChange={(event) => setCardDraftCategory(event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none">
+              <option value="product">Product</option>
+              <option value="service">Service</option>
+              <option value="place">Place</option>
+              <option value="tool">Tool</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Name</label>
+            <input value={cardDraftName} onChange={(event) => setCardDraftName(event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none" placeholder="Card name" />
+          </div>
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Description</label>
+            <textarea value={cardDraftDescription} onChange={(event) => setCardDraftDescription(event.target.value)} className="min-h-[110px] w-full rounded-xl border border-white/10 bg-[#161616] px-3 py-3 text-sm text-[#F5F5F5] outline-none" placeholder="Short description" />
+          </div>
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">External link</label>
+            <input value={cardDraftExternalLink} onChange={(event) => setCardDraftExternalLink(event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none" placeholder="https://..." />
+          </div>
+          {(cardDraftCategory === 'product' || cardDraftCategory === 'service') && (
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-[0.18em] text-[#8D8D8D]">Price</label>
+              <input value={cardDraftPrice} onChange={(event) => setCardDraftPrice(event.target.value)} className="h-11 w-full rounded-xl border border-white/10 bg-[#161616] px-3 text-sm text-[#F5F5F5] outline-none" placeholder="9.99" />
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setEditingCard(null)} className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-[#F0F0F5]">Cancel</button>
+            <button type="button" onClick={saveCardEditor} className="rounded-full bg-[#D4AF37] px-4 py-2 text-sm font-semibold text-[#0A0A0F]">Save card</button>
+          </div>
+        </div>
+      </SimpleModal>
 
       {showInventory && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">

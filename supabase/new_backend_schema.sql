@@ -646,7 +646,7 @@ GRANT SELECT ON public.board_followers TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_followers TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_followers TO service_role;
 
-GRANT SELECT ON public.board_members TO authenticated;
+GRANT SELECT ON public.board_members TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_members TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_members TO service_role;
 
@@ -658,15 +658,15 @@ GRANT SELECT ON public.board_invitations TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_invitations TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_invitations TO service_role;
 
-GRANT SELECT ON public.threads TO authenticated;
+GRANT SELECT ON public.threads TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.threads TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.threads TO service_role;
 
-GRANT SELECT ON public.thread_replies TO authenticated;
+GRANT SELECT ON public.thread_replies TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.thread_replies TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.thread_replies TO service_role;
 
-GRANT SELECT ON public.product_cards TO authenticated;
+GRANT SELECT ON public.product_cards TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_cards TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_cards TO service_role;
 
@@ -694,6 +694,14 @@ GRANT SELECT ON public.notifications TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO service_role;
 
+GRANT SELECT ON public.content_votes TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.content_votes TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.content_votes TO service_role;
+
+GRANT SELECT ON public.content_saves TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.content_saves TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.content_saves TO service_role;
+
 -- Realtime publication for live updates in the app.
 ALTER TABLE public.users REPLICA IDENTITY FULL;
 ALTER TABLE public.boards REPLICA IDENTITY FULL;
@@ -710,6 +718,8 @@ ALTER TABLE public.profiles REPLICA IDENTITY FULL;
 ALTER TABLE public.profile_views REPLICA IDENTITY FULL;
 ALTER TABLE public.pins REPLICA IDENTITY FULL;
 ALTER TABLE public.notifications REPLICA IDENTITY FULL;
+ALTER TABLE public.content_votes REPLICA IDENTITY FULL;
+ALTER TABLE public.content_saves REPLICA IDENTITY FULL;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'users') THEN
@@ -756,6 +766,12 @@ DO $$ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'notifications') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'content_votes') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.content_votes;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'content_saves') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.content_saves;
   END IF;
 EXCEPTION
   WHEN duplicate_object THEN NULL;

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 
+export default function SignUpPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");

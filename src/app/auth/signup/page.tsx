@@ -48,7 +48,8 @@ export default function Signup() {
     }
 
     // Check if this is an existing user (identities array will have items if confirmed)
-    if (data.user && data.user.identities && data.user.identities.length === 0) {
+    const userRecord = data.user as { identities?: Array<unknown> } | null;
+    if (userRecord && Array.isArray(userRecord.identities) && userRecord.identities.length === 0) {
       // This means the user already exists but we got a "fake" success
       setError("An account with this email already exists. Please login instead.");
       setLoading(false);
