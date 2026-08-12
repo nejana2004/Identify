@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { FiArrowRight, FiBookmark, FiBookOpen, FiGlobe, FiMapPin, FiMonitor, FiShoppingBag, FiTool } from 'react-icons/fi';
+import CreatePageCTA from '@/components/CreatePageCTA';
 
 const examples = [
   'My Favorite Cafes in Colombo',
@@ -44,9 +45,9 @@ export default function HomePage() {
             Create one simple page for the products, places, books, tools, services, links, and resources you recommend. Write why they matter, organize everything in one place, and share one useful link with anyone.
           </p>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Link href="/auth/signup" className="inline-flex items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-6 py-3 text-sm font-semibold text-black">
+            <CreatePageCTA className="inline-flex items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-6 py-3 text-sm font-semibold text-black">
               Create your free page <FiArrowRight className="h-4 w-4" />
-            </Link>
+            </CreatePageCTA>
             <Link href="/discover" className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-[#F0F0F5]">
               Explore recommendations
             </Link>
@@ -99,7 +100,7 @@ export default function HomePage() {
           <div className="mt-5 grid gap-2 text-sm text-[#D6D8DF]">
             {examples.map((item) => <div key={item} className="rounded-xl border border-white/10 bg-[#0B0B0B] px-4 py-3">{item}</div>)}
           </div>
-          <Link href="/auth/signup" className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#D4AF37]">Create your first page <FiArrowRight className="h-4 w-4" /></Link>
+          <CreatePageCTA className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#D4AF37]">Create your first page <FiArrowRight className="h-4 w-4" /></CreatePageCTA>
         </div>
       </section>
 
@@ -152,7 +153,7 @@ export default function HomePage() {
         <div className="rounded-[18px] border border-white/10 bg-[#121212] p-5">
           <h2 className="text-2xl font-semibold text-[#F0F0F5]">For people with useful knowledge</h2>
           <p className="mt-3 text-sm leading-7 text-[#A4A7B0]">You do not need to become an influencer to share something valuable. Identify gives you one simple place to organize and share it.</p>
-          <Link href="/auth/signup" className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#D4AF37]">Create your resource page <FiArrowRight className="h-4 w-4" /></Link>
+          <CreatePageCTA className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#D4AF37]">Create your resource page <FiArrowRight className="h-4 w-4" /></CreatePageCTA>
         </div>
 
         <div className="rounded-[18px] border border-white/10 bg-[#121212] p-5">
@@ -180,7 +181,7 @@ export default function HomePage() {
         <h2 className="text-3xl font-semibold text-[#F0F0F5]">Share what you know. Organize what you recommend.</h2>
         <p className="mx-auto mt-3 max-w-3xl text-sm leading-7 text-[#A4A7B0]">Create one useful page for your products, places, books, tools, services, links, and resources.</p>
         <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <Link href="/auth/signup" className="inline-flex items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-6 py-3 text-sm font-semibold text-black">Create your free page <FiArrowRight className="h-4 w-4" /></Link>
+          <CreatePageCTA className="inline-flex items-center justify-center gap-2 rounded-full bg-[#D4AF37] px-6 py-3 text-sm font-semibold text-black">Create your free page <FiArrowRight className="h-4 w-4" /></CreatePageCTA>
           <Link href="/discover" className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-semibold text-[#F0F0F5]">Explore recommendations</Link>
         </div>
       </section>
