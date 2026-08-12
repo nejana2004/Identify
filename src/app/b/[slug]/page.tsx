@@ -115,6 +115,16 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
   const [threadVotes, setThreadVotes] = useState<Record<string, number>>({});
   const [savedThreads, setSavedThreads] = useState<Record<string, boolean>>({});
   const [savedCards, setSavedCards] = useState<Record<string, boolean>>({});
+  const [editingThread, setEditingThread] = useState<ThreadRow | null>(null);
+  const [threadTitleDraft, setThreadTitleDraft] = useState('');
+  const [threadBodyDraft, setThreadBodyDraft] = useState('');
+  const [savingThread, setSavingThread] = useState(false);
+  const [editingCard, setEditingCard] = useState<{ card: ProductCardRow; threadId: string } | null>(null);
+  const [cardNameDraft, setCardNameDraft] = useState('');
+  const [cardDescriptionDraft, setCardDescriptionDraft] = useState('');
+  const [cardExternalDraft, setCardExternalDraft] = useState('');
+  const [cardPriceDraft, setCardPriceDraft] = useState('');
+  const [savingCard, setSavingCard] = useState(false);
 
   useEffect(() => {
     async function loadBoard() {
@@ -570,27 +580,37 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
     router.push('/boards');
   }
 
-  async function editThread(thread: ThreadRow) {
+  function openThreadEditor(thread: ThreadRow) {
     if (!user || thread.author_id !== user.id) return;
-    const nextTitle = window.prompt('Edit thread title', thread.title);
-    if (!nextTitle) return;
-    const nextBody = window.prompt('Edit thread body', thread.body);
-    if (!nextBody) return;
+    setEditingThread(thread);
+    setThreadTitleDraft(thread.title);
+    setThreadBodyDraft(thread.body);
+  }
 
+  async function saveThreadEdit() {
+    if (!editingThread || !user) return;
+    if (!threadTitleDraft.trim() || !threadBodyDraft.trim()) {
+      setError('Title and body are required.');
+      return;
+    }
+
+    setSavingThread(true);
     const { data, error: updateError } = await supabase
       .from('threads')
-      .update({ title: nextTitle.trim(), body: nextBody.trim(), updated_at: new Date().toISOString() })
-      .eq('id', thread.id)
+      .update({ title: threadTitleDraft.trim(), body: threadBodyDraft.trim(), updated_at: new Date().toISOString() })
+      .eq('id', editingThread.id)
       .eq('author_id', user.id)
       .select('id, title, body, thread_type, is_pinned, is_solved, save_count, click_count, view_count, created_at, author_id')
       .single();
+    setSavingThread(false);
 
     if (updateError || !data) {
       setError(updateError?.message || 'Failed to update thread.');
       return;
     }
 
-    setThreads((current) => current.map((item) => item.id === thread.id ? ({ ...(data as ThreadRow), upvote_count: item.upvote_count || 0, downvote_count: item.downvote_count || 0, vote_score: item.vote_score || 0 } as ThreadRow) : item));
+    setThreads((current) => current.map((item) => item.id === editingThread.id ? ({ ...(data as ThreadRow), upvote_count: item.upvote_count || 0, downvote_count: item.downvote_count || 0, vote_score: item.vote_score || 0 } as ThreadRow) : item));
+    setEditingThread(null);
   }
 
   async function deleteThread(thread: ThreadRow) {
@@ -616,44 +636,57 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
     });
   }
 
-  async function editCard(card: ProductCardRow, threadId: string) {
+  function openCardEditor(card: ProductCardRow, threadId: string) {
     if (!user || card.creator_id !== user.id) return;
-    const nextName = window.prompt('Card name', card.name);
-    if (!nextName) return;
-    const nextDescription = window.prompt('Card description', card.description || '') ?? '';
-    const nextExternal = window.prompt('External link', card.external_link || '') ?? '';
-    const acceptsPrice = card.category === 'product' || card.category === 'service';
-    const nextPriceRaw = acceptsPrice ? window.prompt('Price (optional)', card.price?.toString() || '') ?? '' : '';
-    const nextPrice = acceptsPrice && nextPriceRaw.trim() ? Number(nextPriceRaw) : null;
+    setEditingCard({ card, threadId });
+    setCardNameDraft(card.name);
+    setCardDescriptionDraft(card.description || '');
+    setCardExternalDraft(card.external_link || '');
+    setCardPriceDraft(card.price?.toString() || '');
+  }
 
-    if (acceptsPrice && nextPriceRaw.trim() && Number.isNaN(nextPrice)) {
+  async function saveCardEdit() {
+    if (!editingCard || !user) return;
+    if (!cardNameDraft.trim()) {
+      setError('Card name is required.');
+      return;
+    }
+
+    const acceptsPrice = editingCard.card.category === 'product' || editingCard.card.category === 'service';
+    const nextPrice = acceptsPrice && cardPriceDraft.trim() ? Number(cardPriceDraft) : null;
+
+    if (acceptsPrice && cardPriceDraft.trim() && Number.isNaN(nextPrice)) {
       setError('Price must be a valid number.');
       return;
     }
 
+    setSavingCard(true);
     const { data, error: updateError } = await supabase
       .from('product_cards')
       .update({
-        name: nextName.trim(),
-        description: nextDescription.trim() || null,
-        external_link: nextExternal.trim() || null,
+        name: cardNameDraft.trim(),
+        description: cardDescriptionDraft.trim() || null,
+        external_link: cardExternalDraft.trim() || null,
         price: nextPrice,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', card.id)
+      .eq('id', editingCard.card.id)
       .eq('creator_id', user.id)
       .select('id, name, description, price, category, image_url, file_url, external_link, verified_owner, save_count, click_count, purchase_count, usage_count, created_at, thread_id, creator_id')
       .single();
+    setSavingCard(false);
 
     if (updateError || !data) {
       setError(updateError?.message || 'Failed to update card.');
       return;
     }
 
+    const threadId = editingCard.threadId;
     setThreadCards((current) => ({
       ...current,
-      [threadId]: (current[threadId] || []).map((item) => item.id === card.id ? (data as ProductCardRow) : item),
+      [threadId]: (current[threadId] || []).map((item) => item.id === editingCard.card.id ? (data as ProductCardRow) : item),
     }));
+    setEditingCard(null);
   }
 
   async function deleteCard(card: ProductCardRow, threadId: string) {
@@ -796,7 +829,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                               <button onClick={() => handleCardSave(card.id)} className={`rounded-full border px-3 py-1 text-xs ${savedCards[card.id] ? 'border-[#D4AF37]/35 bg-[#D4AF37]/12 text-[#D4AF37]' : 'border-white/20 bg-white/[0.03] text-[#F0F0F5]'}`}>Save</button>
                               {user?.id === card.creator_id && (
                                 <>
-                                  <button onClick={() => editCard(card, thread.id)} className="rounded-full border border-white/20 bg-white/[0.03] px-3 py-1 text-xs text-[#F0F0F5]">Edit</button>
+                                  <button onClick={() => openCardEditor(card, thread.id)} className="rounded-full border border-white/20 bg-white/[0.03] px-3 py-1 text-xs text-[#F0F0F5]">Edit</button>
                                   <button onClick={() => deleteCard(card, thread.id)} className="rounded-full border border-red-400/30 bg-red-400/10 px-3 py-1 text-xs text-red-300">Delete</button>
                                 </>
                               )}
@@ -827,7 +860,7 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
                     </Link>
                     {user?.id === thread.author_id && (
                       <>
-                        <button onClick={() => editThread(thread)} title="Edit thread" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/[0.03] text-[#F0F0F5]">
+                        <button onClick={() => openThreadEditor(thread)} title="Edit thread" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/[0.03] text-[#F0F0F5]">
                           <FiEdit2 className="h-4 w-4" />
                         </button>
                         <button onClick={() => deleteThread(thread)} title="Delete thread" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-red-400/30 bg-red-400/10 text-red-300">
@@ -1054,6 +1087,96 @@ export default function BoardVaultPage({ params }: { params: Promise<{ slug: str
 
             <div className="mt-3 flex justify-end">
               <button onClick={() => setShowInventory(false)} className="rounded-lg bg-[#F5F5F5] px-3 py-2 text-sm font-semibold text-black">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingThread && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-[16px] border border-white/10 bg-[#0F0F0F] p-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="text-sm font-semibold text-[#F5F5F5]">Edit thread</div>
+              <button onClick={() => setEditingThread(null)} className="rounded-md border border-white/15 bg-[#1A1A1A] p-1.5 text-[#D0D0D0]"><FiX className="h-4 w-4" /></button>
+            </div>
+
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Title</label>
+                <input
+                  value={threadTitleDraft}
+                  onChange={(event) => setThreadTitleDraft(event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Body</label>
+                <textarea
+                  value={threadBodyDraft}
+                  onChange={(event) => setThreadBodyDraft(event.target.value)}
+                  className="min-h-[140px] w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-sm leading-6 text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditingThread(null)} className="rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-[#F0F0F5]">Cancel</button>
+              <button onClick={saveThreadEdit} disabled={savingThread} className="rounded-lg bg-[#F5F5F5] px-3 py-2 text-sm font-semibold text-black disabled:opacity-60">{savingThread ? 'Saving...' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingCard && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-[16px] border border-white/10 bg-[#0F0F0F] p-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="text-sm font-semibold text-[#F5F5F5]">Edit card</div>
+              <button onClick={() => setEditingCard(null)} className="rounded-md border border-white/15 bg-[#1A1A1A] p-1.5 text-[#D0D0D0]"><FiX className="h-4 w-4" /></button>
+            </div>
+
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Name</label>
+                <input
+                  value={cardNameDraft}
+                  onChange={(event) => setCardNameDraft(event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Description</label>
+                <textarea
+                  value={cardDescriptionDraft}
+                  onChange={(event) => setCardDescriptionDraft(event.target.value)}
+                  className="min-h-[90px] w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-sm leading-6 text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">External link</label>
+                <input
+                  value={cardExternalDraft}
+                  onChange={(event) => setCardExternalDraft(event.target.value)}
+                  placeholder="https://..."
+                  className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+              {(editingCard.card.category === 'product' || editingCard.card.category === 'service') && (
+                <div>
+                  <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Price (optional)</label>
+                  <input
+                    value={cardPriceDraft}
+                    onChange={(event) => setCardPriceDraft(event.target.value)}
+                    placeholder="0.00"
+                    className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditingCard(null)} className="rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-[#F0F0F5]">Cancel</button>
+              <button onClick={saveCardEdit} disabled={savingCard} className="rounded-lg bg-[#F5F5F5] px-3 py-2 text-sm font-semibold text-black disabled:opacity-60">{savingCard ? 'Saving...' : 'Save'}</button>
             </div>
           </div>
         </div>

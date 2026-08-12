@@ -118,6 +118,16 @@ export default function ThreadDetailPage({ params }: { params: Promise<{ slug: s
   const [replyVotes, setReplyVotes] = useState<Record<string, number>>({});
   const [threadSaved, setThreadSaved] = useState(false);
   const [savedCards, setSavedCards] = useState<Record<string, boolean>>({});
+  const [editingThread, setEditingThread] = useState(false);
+  const [threadTitleDraft, setThreadTitleDraft] = useState('');
+  const [threadBodyDraft, setThreadBodyDraft] = useState('');
+  const [savingThread, setSavingThread] = useState(false);
+  const [editingCard, setEditingCard] = useState<ProductCardRow | null>(null);
+  const [cardNameDraft, setCardNameDraft] = useState('');
+  const [cardDescriptionDraft, setCardDescriptionDraft] = useState('');
+  const [cardExternalDraft, setCardExternalDraft] = useState('');
+  const [cardPriceDraft, setCardPriceDraft] = useState('');
+  const [savingCard, setSavingCard] = useState(false);
 
   useEffect(() => {
     async function loadThread() {
@@ -390,20 +400,29 @@ export default function ThreadDetailPage({ params }: { params: Promise<{ slug: s
     return <Shell><EmptyState title="Thread unavailable" text="The selected thread could not be found." /></Shell>;
   }
 
-  async function updateThread() {
+  function openThreadEditor() {
     if (!thread || !user || thread.author_id !== user.id) return;
-    const nextTitle = window.prompt('Edit thread title', thread.title);
-    if (!nextTitle) return;
-    const nextBody = window.prompt('Edit thread body', thread.body);
-    if (!nextBody) return;
+    setThreadTitleDraft(thread.title);
+    setThreadBodyDraft(thread.body);
+    setEditingThread(true);
+  }
 
+  async function saveThreadEdit() {
+    if (!thread || !user) return;
+    if (!threadTitleDraft.trim() || !threadBodyDraft.trim()) {
+      setError('Title and body are required.');
+      return;
+    }
+
+    setSavingThread(true);
     const { data, error: updateError } = await supabase
       .from('threads')
-      .update({ title: nextTitle.trim(), body: nextBody.trim(), updated_at: new Date().toISOString() })
+      .update({ title: threadTitleDraft.trim(), body: threadBodyDraft.trim(), updated_at: new Date().toISOString() })
       .eq('id', thread.id)
       .eq('author_id', user.id)
       .select('id, board_id, author_id, title, body, thread_type, is_pinned, is_solved, save_count, click_count, view_count, created_at')
       .single();
+    setSavingThread(false);
 
     if (updateError || !data) {
       setError(updateError?.message || 'Failed to update thread.');
@@ -411,6 +430,7 @@ export default function ThreadDetailPage({ params }: { params: Promise<{ slug: s
     }
 
     setThread((current) => current ? { ...current, title: data.title, body: data.body } : current);
+    setEditingThread(false);
   }
 
   async function removeThread() {
@@ -431,41 +451,53 @@ export default function ThreadDetailPage({ params }: { params: Promise<{ slug: s
     router.push(`/b/${boardSlug}`);
   }
 
-  async function editCard(card: ProductCardRow) {
+  function openCardEditor(card: ProductCardRow) {
     if (!user || card.creator_id !== user.id) return;
-    const nextName = window.prompt('Card name', card.name);
-    if (!nextName) return;
-    const nextDescription = window.prompt('Card description', card.description || '') ?? '';
-    const nextExternal = window.prompt('External link (optional)', card.external_link || '') ?? '';
-    const acceptsPrice = card.category === 'product' || card.category === 'service';
-    const nextPriceRaw = acceptsPrice ? window.prompt('Price (optional)', card.price?.toString() || '') ?? '' : '';
-    const nextPrice = acceptsPrice && nextPriceRaw.trim() ? Number(nextPriceRaw) : null;
+    setEditingCard(card);
+    setCardNameDraft(card.name);
+    setCardDescriptionDraft(card.description || '');
+    setCardExternalDraft(card.external_link || '');
+    setCardPriceDraft(card.price?.toString() || '');
+  }
 
-    if (acceptsPrice && nextPriceRaw.trim() && Number.isNaN(nextPrice)) {
+  async function saveCardEdit() {
+    if (!editingCard || !user) return;
+    if (!cardNameDraft.trim()) {
+      setError('Card name is required.');
+      return;
+    }
+
+    const acceptsPrice = editingCard.category === 'product' || editingCard.category === 'service';
+    const nextPrice = acceptsPrice && cardPriceDraft.trim() ? Number(cardPriceDraft) : null;
+
+    if (acceptsPrice && cardPriceDraft.trim() && Number.isNaN(nextPrice)) {
       setError('Price must be a valid number.');
       return;
     }
 
+    setSavingCard(true);
     const { data, error: updateError } = await supabase
       .from('product_cards')
       .update({
-        name: nextName.trim(),
-        description: nextDescription.trim() || null,
-        external_link: nextExternal.trim() || null,
+        name: cardNameDraft.trim(),
+        description: cardDescriptionDraft.trim() || null,
+        external_link: cardExternalDraft.trim() || null,
         price: nextPrice,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', card.id)
+      .eq('id', editingCard.id)
       .eq('creator_id', user.id)
       .select('id, creator_id, name, description, price, category, image_url, file_url, external_link, verified_owner, save_count, click_count, purchase_count, usage_count, thread_id')
       .single();
+    setSavingCard(false);
 
     if (updateError || !data) {
       setError(updateError?.message || 'Failed to edit card.');
       return;
     }
 
-    setCards((current) => current.map((item) => item.id === card.id ? (data as ProductCardRow) : item));
+    setCards((current) => current.map((item) => item.id === editingCard.id ? (data as ProductCardRow) : item));
+    setEditingCard(null);
   }
 
   async function removeCard(card: ProductCardRow) {
@@ -631,7 +663,7 @@ export default function ThreadDetailPage({ params }: { params: Promise<{ slug: s
               </button>
               {user?.id === thread.author_id && (
                 <>
-                  <button onClick={updateThread} title="Edit thread" className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/[0.03] text-[#F0F0F5]"><FiEdit2 className="h-4 w-4" /></button>
+                  <button onClick={openThreadEditor} title="Edit thread" className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/[0.03] text-[#F0F0F5]"><FiEdit2 className="h-4 w-4" /></button>
                   <button onClick={removeThread} title="Delete thread" className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-400/30 bg-red-400/10 text-red-300"><FiTrash2 className="h-4 w-4" /></button>
                 </>
               )}
@@ -781,7 +813,7 @@ export default function ThreadDetailPage({ params }: { params: Promise<{ slug: s
                   </div>
                   {user?.id === card.creator_id && (
                     <div className="mt-3 flex gap-2">
-                      <button onClick={() => editCard(card)} className="rounded-full border border-white/20 bg-white/[0.03] px-3 py-1 text-xs text-[#F0F0F5]">Edit</button>
+                      <button onClick={() => openCardEditor(card)} className="rounded-full border border-white/20 bg-white/[0.03] px-3 py-1 text-xs text-[#F0F0F5]">Edit</button>
                       <button onClick={() => removeCard(card)} className="rounded-full border border-red-400/30 bg-red-400/10 px-3 py-1 text-xs text-red-300">Delete</button>
                     </div>
                   )}
@@ -860,6 +892,96 @@ export default function ThreadDetailPage({ params }: { params: Promise<{ slug: s
 
             <div className="mt-3 flex justify-end">
               <button onClick={() => setShowInventory(false)} className="rounded-lg bg-[#F5F5F5] px-3 py-2 text-sm font-semibold text-black">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingThread && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-[16px] border border-white/10 bg-[#0F0F0F] p-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="text-sm font-semibold text-[#F5F5F5]">Edit thread</div>
+              <button onClick={() => setEditingThread(false)} className="rounded-md border border-white/15 bg-[#1A1A1A] p-1.5 text-[#D0D0D0]"><FiX className="h-4 w-4" /></button>
+            </div>
+
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Title</label>
+                <input
+                  value={threadTitleDraft}
+                  onChange={(event) => setThreadTitleDraft(event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Body</label>
+                <textarea
+                  value={threadBodyDraft}
+                  onChange={(event) => setThreadBodyDraft(event.target.value)}
+                  className="min-h-[140px] w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-sm leading-6 text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditingThread(false)} className="rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-[#F0F0F5]">Cancel</button>
+              <button onClick={saveThreadEdit} disabled={savingThread} className="rounded-lg bg-[#F5F5F5] px-3 py-2 text-sm font-semibold text-black disabled:opacity-60">{savingThread ? 'Saving...' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingCard && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-[16px] border border-white/10 bg-[#0F0F0F] p-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="text-sm font-semibold text-[#F5F5F5]">Edit card</div>
+              <button onClick={() => setEditingCard(null)} className="rounded-md border border-white/15 bg-[#1A1A1A] p-1.5 text-[#D0D0D0]"><FiX className="h-4 w-4" /></button>
+            </div>
+
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Name</label>
+                <input
+                  value={cardNameDraft}
+                  onChange={(event) => setCardNameDraft(event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Description</label>
+                <textarea
+                  value={cardDescriptionDraft}
+                  onChange={(event) => setCardDescriptionDraft(event.target.value)}
+                  className="min-h-[90px] w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-sm leading-6 text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">External link</label>
+                <input
+                  value={cardExternalDraft}
+                  onChange={(event) => setCardExternalDraft(event.target.value)}
+                  placeholder="https://..."
+                  className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                />
+              </div>
+              {(editingCard.category === 'product' || editingCard.category === 'service') && (
+                <div>
+                  <label className="mb-2 block text-xs uppercase tracking-[0.16em] text-[#8D8D8D]">Price (optional)</label>
+                  <input
+                    value={cardPriceDraft}
+                    onChange={(event) => setCardPriceDraft(event.target.value)}
+                    placeholder="0.00"
+                    className="h-11 w-full rounded-lg border border-white/10 bg-[#101010] px-3 text-sm text-[#F0F0F5] outline-none placeholder:text-[#6B7280]"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setEditingCard(null)} className="rounded-lg border border-white/15 bg-white/[0.03] px-3 py-2 text-sm text-[#F0F0F5]">Cancel</button>
+              <button onClick={saveCardEdit} disabled={savingCard} className="rounded-lg bg-[#F5F5F5] px-3 py-2 text-sm font-semibold text-black disabled:opacity-60">{savingCard ? 'Saving...' : 'Save'}</button>
             </div>
           </div>
         </div>
